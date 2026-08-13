@@ -38,11 +38,12 @@ if (!started.resumeUsed) {
 
 let result;
 for (let index = 0; index < started.maxQuestions; index += 1) {
-  result = await caller.interview.submitAnswer({
+  const answerUpload = await caller.interview.beginAnswerUpload({
     sessionId: started.sessionId,
-    audioBase64: audio,
     mimeType: "audio/mpeg",
   });
+  await caller.interview.appendAnswerUpload({ uploadId: answerUpload.uploadId, chunkBase64: audio });
+  result = await caller.interview.submitAnswer({ sessionId: started.sessionId, uploadId: answerUpload.uploadId });
 
   if (!result.transcript || !/rag|retrieval|faithfulness/i.test(result.transcript)) {
     throw new Error(`Expected a meaningful transcription at question ${index + 1}, received: ${result.transcript}`);

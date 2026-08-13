@@ -25,3 +25,5 @@
 - [x] Fix the interview-start request that returns an HTML response instead of the expected tRPC JSON payload.
 - [x] Upload resumes in small server-mediated chunks so 5 MB files avoid gateway payload limits and browser cross-origin restrictions.
 - [x] Update the live voice end-to-end fixture to create a stored resume reference under the repaired upload contract and pass the full live pipeline.
+- [ ] Verify the staged recorded-answer repair in a real browser: grant microphone permission, record an answer, confirm upload, transcription, feedback, and next-question progression without an HTML parsing error.
+- [x] Verify the deployed browser is serving the latest resume-upload repair rather than a stale client bundle.

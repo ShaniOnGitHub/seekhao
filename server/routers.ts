@@ -12,8 +12,11 @@ import { storageGetSignedUrl, storagePut } from "./storage";
 
 const sessions = new Map<string, InterviewSession>();
 const pendingResumeUploads = new Map<string, { name: string; mimeType: "application/pdf" | "text/plain"; chunks: Buffer[]; byteLength: number; createdAt: number }>();
+const pendingAnswerUploads = new Map<string, { sessionId: string; mimeType: "audio/webm" | "audio/mp4" | "audio/mpeg" | "audio/wav" | "audio/ogg"; chunks: Buffer[]; byteLength: number; createdAt: number }>();
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_RESUME_CHUNK_BYTES = 320 * 1024;
+const MAX_ANSWER_BYTES = 16 * 1024 * 1024;
+const MAX_ANSWER_CHUNK_BYTES = 320 * 1024;
 const SEEKHO_TEXT_MODEL = "gemini-3-flash-preview";
 
 type QuestionResult = { question: string; focus: string; followUpHint: string };
@@ -73,6 +76,22 @@ async function makeReport(session: InterviewSession): Promise<ReportResult> {
   return { overallScore: typeof result.overallScore === "number" ? result.overallScore : fallback.overallScore, summary: result.summary || fallback.summary, strengths: result.strengths?.length ? result.strengths : fallback.strengths, focusAreas: result.focusAreas?.length ? result.focusAreas : fallback.focusAreas, nextSteps: result.nextSteps?.length ? result.nextSteps : fallback.nextSteps };
 }
 
+async function processUploadedAnswer(session: InterviewSession, audio: Buffer, mimeType: "audio/webm" | "audio/mp4" | "audio/mpeg" | "audio/wav" | "audio/ogg") {
+  const uploaded = await storagePut(`seekho/answers/${session.id}/${nanoid()}`, audio, mimeType);
+  const signedUrl = await storageGetSignedUrl(uploaded.key);
+  const transcription = await transcribeAudio({ audioUrl: signedUrl, language: "en", prompt: `Transcribe an interview answer for a ${session.role} role. Preserve technical terms such as RAG, LLM, LangChain, multimodal, and MCP.` });
+  if ("error" in transcription) throw new TRPCError({ code: "BAD_REQUEST", message: transcription.error, cause: transcription });
+  const question = session.questions[session.answers.length];
+  if (!question) throw new TRPCError({ code: "CONFLICT", message: "all questions have already been completed" });
+  const feedback = await evaluateAnswer(session, question, transcription.text);
+  session.answers.push({ question, transcript: transcription.text, feedback });
+  const complete = isRoundComplete(session.answers.length);
+  if (complete) return { transcript: transcription.text, feedback, complete: true, report: await makeReport(session) };
+  const next = await makeQuestion(session);
+  session.questions.push(next.question);
+  return { transcript: transcription.text, feedback, complete: false, nextQuestion: next.question, nextFocus: next.focus, questionNumber: questionNumberFor(session.answers.length), maxQuestions: MAX_QUESTIONS };
+}
+
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
@@ -129,24 +148,32 @@ export const appRouter = router({
       sessions.set(session.id, session);
       return { sessionId: session.id, questionNumber: 1, maxQuestions: MAX_QUESTIONS, question: first.question, focus: first.focus, resumeUsed: Boolean(resumeSummary) };
     }),
-    submitAnswer: publicProcedure.input(z.object({ sessionId: z.string().min(1), audioBase64: z.string().min(1), mimeType: z.enum(["audio/webm", "audio/mp4", "audio/mpeg", "audio/wav", "audio/ogg"]) })).mutation(async ({ input }) => {
+    beginAnswerUpload: publicProcedure.input(z.object({ sessionId: z.string().min(1), mimeType: z.enum(["audio/webm", "audio/mp4", "audio/mpeg", "audio/wav", "audio/ogg"]) })).mutation(({ input }) => {
       const session = sessions.get(input.sessionId);
       if (!session) throw new TRPCError({ code: "NOT_FOUND", message: "this practice session has expired. start another one." });
-      const audio = Buffer.from(input.audioBase64, "base64");
-      if (audio.byteLength > 16 * 1024 * 1024) throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "keep each answer recording under 16mb" });
-      const uploaded = await storagePut(`seekho/answers/${session.id}/${nanoid()}`, audio, input.mimeType);
-      const signedUrl = await storageGetSignedUrl(uploaded.key);
-      const transcription = await transcribeAudio({ audioUrl: signedUrl, language: "en", prompt: `Transcribe an interview answer for a ${session.role} role. Preserve technical terms such as RAG, LLM, LangChain, multimodal, and MCP.` });
-      if ("error" in transcription) throw new TRPCError({ code: "BAD_REQUEST", message: transcription.error, cause: transcription });
-      const question = session.questions[session.answers.length];
-      if (!question) throw new TRPCError({ code: "CONFLICT", message: "all questions have already been completed" });
-      const feedback = await evaluateAnswer(session, question, transcription.text);
-      session.answers.push({ question, transcript: transcription.text, feedback });
-      const complete = isRoundComplete(session.answers.length);
-      if (complete) return { transcript: transcription.text, feedback, complete: true, report: await makeReport(session) };
-      const next = await makeQuestion(session);
-      session.questions.push(next.question);
-      return { transcript: transcription.text, feedback, complete: false, nextQuestion: next.question, nextFocus: next.focus, questionNumber: questionNumberFor(session.answers.length), maxQuestions: MAX_QUESTIONS };
+      const now = Date.now();
+      for (const [id, upload] of Array.from(pendingAnswerUploads.entries())) if (now - upload.createdAt > 10 * 60 * 1000) pendingAnswerUploads.delete(id);
+      const uploadId = nanoid();
+      pendingAnswerUploads.set(uploadId, { ...input, chunks: [], byteLength: 0, createdAt: now });
+      return { uploadId };
+    }),
+    appendAnswerUpload: publicProcedure.input(z.object({ uploadId: z.string().min(1), chunkBase64: z.string().min(1) })).mutation(({ input }) => {
+      const upload = pendingAnswerUploads.get(input.uploadId);
+      if (!upload) throw new TRPCError({ code: "NOT_FOUND", message: "that answer upload has expired. record it again and retry." });
+      const chunk = Buffer.from(input.chunkBase64, "base64");
+      if (!chunk.byteLength || chunk.byteLength > MAX_ANSWER_CHUNK_BYTES) throw new TRPCError({ code: "BAD_REQUEST", message: "that answer chunk could not be read. record it again and retry." });
+      if (upload.byteLength + chunk.byteLength > MAX_ANSWER_BYTES) throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "keep each answer recording under 16mb" });
+      upload.chunks.push(chunk);
+      upload.byteLength += chunk.byteLength;
+      return { receivedBytes: upload.byteLength };
+    }),
+    submitAnswer: publicProcedure.input(z.object({ sessionId: z.string().min(1), uploadId: z.string().min(1) })).mutation(async ({ input }) => {
+      const session = sessions.get(input.sessionId);
+      if (!session) throw new TRPCError({ code: "NOT_FOUND", message: "this practice session has expired. start another one." });
+      const upload = pendingAnswerUploads.get(input.uploadId);
+      if (!upload || upload.sessionId !== session.id || !upload.byteLength) throw new TRPCError({ code: "NOT_FOUND", message: "that answer upload has expired. record it again and retry." });
+      pendingAnswerUploads.delete(input.uploadId);
+      return processUploadedAnswer(session, Buffer.concat(upload.chunks), upload.mimeType);
     }),
   }),
 });
