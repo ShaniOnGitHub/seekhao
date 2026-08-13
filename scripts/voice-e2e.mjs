@@ -8,13 +8,24 @@ const caller = appRouter.createCaller({
   res: { clearCookie: () => {} },
 });
 
+const resumeText = "AI engineer with hands-on experience shipping retrieval-augmented generation prototypes, model evaluations, and Python services.";
+const resumeUpload = await caller.interview.beginResumeUpload({
+  name: "voice-test-resume.txt",
+  mimeType: "text/plain",
+});
+await caller.interview.appendResumeUpload({
+  uploadId: resumeUpload.uploadId,
+  chunkBase64: Buffer.from(resumeText).toString("base64"),
+});
+const storedResume = await caller.interview.completeResumeUpload({ uploadId: resumeUpload.uploadId });
+
 const started = await caller.interview.start({
   name: "Voice test candidate",
   role: "AI engineer",
   resume: {
     name: "voice-test-resume.txt",
     mimeType: "text/plain",
-    base64: Buffer.from("AI engineer with hands-on experience shipping retrieval-augmented generation prototypes, model evaluations, and Python services.").toString("base64"),
+    storageKey: storedResume.key,
   },
 });
 
