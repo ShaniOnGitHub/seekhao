@@ -27,3 +27,5 @@
 - [x] Update the live voice end-to-end fixture to create a stored resume reference under the repaired upload contract and pass the full live pipeline.
 - [ ] Verify the staged recorded-answer repair in a real browser: grant microphone permission, record an answer, confirm upload, transcription, feedback, and next-question progression without an HTML parsing error.
 - [x] Verify the deployed browser is serving the latest resume-upload repair rather than a stale client bundle.
+- [x] Audit commit history, author attribution, and private-repository visibility affecting GitHub contribution counts.
+- [x] Attribute the existing legitimate seekho commits to the connected verified GitHub email and push the corrected private history.
