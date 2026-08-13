@@ -1,6 +1,6 @@
 import { useFirebaseAuth } from "@/_core/hooks/useFirebaseAuth";
 import { signInWithGoogle } from "@/lib/firebase";
-import { browserVoiceMessage, microphoneErrorMessage, normaliseAudioMimeType, type AudioMimeType } from "@/lib/interviewBrowser";
+import { browserVoiceMessage, interviewRequestErrorMessage, microphoneErrorMessage, normaliseAudioMimeType, type AudioMimeType } from "@/lib/interviewBrowser";
 import { trpc } from "@/lib/trpc";
 import { ArrowLeft, ArrowRight, Check, FileText, Mic, Pause, RotateCcw, Sparkles, Square, UploadCloud, Volume2, X } from "lucide-react";
 import { type ChangeEvent, type DragEvent, useEffect, useRef, useState } from "react";
@@ -9,6 +9,7 @@ import { useLocation } from "wouter";
 
 const roles = ["ai engineer", "software engineer", "data analyst", "product manager", "product designer", "other"];
 const RESUME_CHUNK_BYTES = 320 * 1024;
+const ANSWER_CHUNK_BYTES = 320 * 1024;
 type InterviewStart = { sessionId: string; questionNumber: number; maxQuestions: number; question: string; focus: string; resumeUsed: boolean };
 type Feedback = { score: number; feedback: string; strength: string; focus: string; nextCue: string };
 type Report = { overallScore: number; summary: string; strengths: string[]; focusAreas: string[]; nextSteps: string[] };
@@ -31,6 +32,8 @@ export default function Interview() {
   const appendResumeUpload = trpc.interview.appendResumeUpload.useMutation();
   const completeResumeUpload = trpc.interview.completeResumeUpload.useMutation();
   const startInterview = trpc.interview.start.useMutation();
+  const beginAnswerUpload = trpc.interview.beginAnswerUpload.useMutation();
+  const appendAnswerUpload = trpc.interview.appendAnswerUpload.useMutation();
   const submitAnswer = trpc.interview.submitAnswer.useMutation();
   const [name, setName] = useState("");
   const [role, setRole] = useState("ai engineer");
@@ -109,7 +112,7 @@ export default function Interview() {
       const started = await startInterview.mutateAsync({ name: name.trim(), role, resume: resumeInput });
       setPractice(started); setQuestion(started.question); setFocus(started.focus); setQuestionNumber(started.questionNumber); setCaption(started.question); setTranscript(""); setFeedback(null); setVoiceState("idle");
       speak(started.question);
-    } catch (error) { toast.error(error instanceof Error ? error.message : "we couldn't start your practice. try again."); }
+    } catch (error) { toast.error(interviewRequestErrorMessage(error, "we couldn't start your practice. try again.")); }
   };
   const startRecording = async () => {
     try {
@@ -131,13 +134,17 @@ export default function Interview() {
     if (!practice) return;
     setCaption("turning your answer into subtitles and listening for the signal…");
     try {
-      const data = await readFileAsBase64(new File([blob], "answer.webm", { type: mimeType }));
-      const result = await submitAnswer.mutateAsync({ sessionId: practice.sessionId, audioBase64: data, mimeType });
+      if (blob.size > 16 * 1024 * 1024) throw new Error("keep each answer recording under 16mb");
+      const upload = await beginAnswerUpload.mutateAsync({ sessionId: practice.sessionId, mimeType });
+      for (let offset = 0; offset < blob.size; offset += ANSWER_CHUNK_BYTES) {
+        await appendAnswerUpload.mutateAsync({ uploadId: upload.uploadId, chunkBase64: await readFileAsBase64(blob.slice(offset, offset + ANSWER_CHUNK_BYTES) as File) });
+      }
+      const result = await submitAnswer.mutateAsync({ sessionId: practice.sessionId, uploadId: upload.uploadId });
       setTranscript(result.transcript); setCaption(result.transcript); setFeedback(result.feedback);
       speak(`${result.feedback.feedback}. next time: ${result.feedback.nextCue}`);
       if (result.complete && result.report) setReport(result.report);
       else if (!result.complete && result.nextQuestion) { setQuestion(result.nextQuestion); setFocus(result.nextFocus || ""); setQuestionNumber(result.questionNumber || questionNumber + 1); }
-    } catch (error) { setCaption("we couldn't process that answer. please record it again."); toast.error(error instanceof Error ? error.message : "we couldn't process that answer."); }
+    } catch (error) { const message = interviewRequestErrorMessage(error, "we couldn't process that answer."); setCaption(message); toast.error(message); }
   };
   const continuePractice = () => { if (!question || report) return; setTranscript(""); setFeedback(null); setCaption(question); speak(question); };
   const reset = () => { setPractice(null); setReport(null); setFeedback(null); setTranscript(""); setCaption("your question will appear here as a spoken subtitle."); };
@@ -146,7 +153,7 @@ export default function Interview() {
   if (!isAuthenticated) return <main className="dusk-page grid min-h-screen place-items-center px-5"><div className="glass-panel max-w-md rounded-[2rem] p-3"><div className="gradient-card overflow-hidden rounded-[1.6rem] p-8 text-center text-white"><span className="seekho-wordmark text-4xl font-medium">seekho</span><div className="mx-auto mt-8 flex h-10 items-end justify-center gap-1.5">{[16,28,38,21,34,14,29].map((height,index)=><span className="wave-bar w-1.5 rounded-full bg-white" style={{height}} key={index} />)}</div><p className="mt-7 text-sm text-white/68">your practice room is ready</p><h1 className="mt-2 text-3xl tracking-[-.06em]">sign in to continue.</h1><button onClick={() => configured ? signInWithGoogle().catch(() => toast.error("we couldn't open google sign-in.")) : toast.error("google sign-in will be ready once firebase is connected.")} className="mt-7 rounded-full bg-white px-5 py-3 text-sm font-medium text-[#111111]">continue with google</button></div></div></main>;
   if (report) return <ReportView name={name} role={role} report={report} onAgain={reset} onHome={() => setLocation("/")} />;
   if (!practice) return <Onboarding name={name} role={role} resume={resume} dragging={dragging} busy={beginResumeUpload.isPending || appendResumeUpload.isPending || completeResumeUpload.isPending || startInterview.isPending} onName={setName} onRole={setRole} onFileChange={onFileChange} onDrop={onDrop} onDragging={setDragging} onRemove={() => setResume(null)} onBegin={begin} onBack={() => setLocation("/")} />;
-  return <PracticeRoom name={name} role={role} question={question} focus={focus} number={questionNumber} max={practice.maxQuestions} caption={caption} transcript={transcript} feedback={feedback} recording={recording} elapsed={elapsed} busy={submitAnswer.isPending} voiceState={voiceState} onSpeak={() => { setCaption(question); speak(question); }} onRecord={startRecording} onStop={stopRecording} onContinue={continuePractice} onExit={reset} />;
+  return <PracticeRoom name={name} role={role} question={question} focus={focus} number={questionNumber} max={practice.maxQuestions} caption={caption} transcript={transcript} feedback={feedback} recording={recording} elapsed={elapsed} busy={beginAnswerUpload.isPending || appendAnswerUpload.isPending || submitAnswer.isPending} voiceState={voiceState} onSpeak={() => { setCaption(question); speak(question); }} onRecord={startRecording} onStop={stopRecording} onContinue={continuePractice} onExit={reset} />;
 }
 
 function Onboarding({ name, role, resume, dragging, busy, onName, onRole, onFileChange, onDrop, onDragging, onRemove, onBegin, onBack }: { name: string; role: string; resume: File | null; dragging: boolean; busy: boolean; onName: (value: string) => void; onRole: (value: string) => void; onFileChange: (event: ChangeEvent<HTMLInputElement>) => void; onDrop: (event: DragEvent<HTMLLabelElement>) => void; onDragging: (value: boolean) => void; onRemove: () => void; onBegin: () => void; onBack: () => void }) {

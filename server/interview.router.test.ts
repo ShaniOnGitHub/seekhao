@@ -39,6 +39,13 @@ async function startInterview() {
   return createCaller().interview.start({ name: "Test candidate", role: "AI engineer" });
 }
 
+async function submitStagedAnswer(sessionId: string) {
+  const caller = createCaller();
+  const upload = await caller.interview.beginAnswerUpload({ sessionId, mimeType: "audio/webm" });
+  await caller.interview.appendAnswerUpload({ uploadId: upload.uploadId, chunkBase64: Buffer.from("audio").toString("base64") });
+  return caller.interview.submitAnswer({ sessionId, uploadId: upload.uploadId });
+}
+
 describe("seekho interview router error and fallback behavior", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -49,7 +56,7 @@ describe("seekho interview router error and fallback behavior", () => {
   });
 
   it("rejects an expired practice session before attempting an upload", async () => {
-    await expect(createCaller().interview.submitAnswer({ sessionId: "missing", audioBase64: Buffer.from("audio").toString("base64"), mimeType: "audio/webm" })).rejects.toMatchObject({ code: "NOT_FOUND", message: "this practice session has expired. start another one." });
+    await expect(createCaller().interview.beginAnswerUpload({ sessionId: "missing", mimeType: "audio/webm" })).rejects.toMatchObject({ code: "NOT_FOUND", message: "this practice session has expired. start another one." });
     expect(mocks.storagePut).not.toHaveBeenCalled();
   });
 
@@ -69,7 +76,7 @@ describe("seekho interview router error and fallback behavior", () => {
     const started = await startInterview();
     mocks.transcribeAudio.mockResolvedValue({ error: "we could not transcribe that recording" });
 
-    await expect(createCaller().interview.submitAnswer({ sessionId: started.sessionId, audioBase64: Buffer.from("audio").toString("base64"), mimeType: "audio/webm" })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "we could not transcribe that recording" });
+    await expect(submitStagedAnswer(started.sessionId)).rejects.toMatchObject({ code: "BAD_REQUEST", message: "we could not transcribe that recording" });
   });
 
   it("returns a safe report when the final structured AI response is malformed", async () => {
@@ -78,7 +85,7 @@ describe("seekho interview router error and fallback behavior", () => {
     let finalResult: Awaited<ReturnType<ReturnType<typeof createCaller>["interview"]["submitAnswer"]>> | undefined;
 
     for (let index = 0; index < 5; index += 1) {
-      finalResult = await createCaller().interview.submitAnswer({ sessionId: started.sessionId, audioBase64: Buffer.from("audio").toString("base64"), mimeType: "audio/webm" });
+      finalResult = await submitStagedAnswer(started.sessionId);
     }
 
     expect(finalResult?.complete).toBe(true);
