@@ -60,16 +60,12 @@ describe("seekho interview router error and fallback behavior", () => {
     expect(mocks.storagePut).not.toHaveBeenCalled();
   });
 
-  it("stores staged resume chunks and starts from the stored resume reference", async () => {
+  it("starts from bounded extracted resume text without transient upload state", async () => {
     const caller = createCaller();
-    const upload = await caller.interview.beginResumeUpload({ name: "candidate.pdf", mimeType: "application/pdf" });
-    await caller.interview.appendResumeUpload({ uploadId: upload.uploadId, chunkBase64: Buffer.from("resume bytes").toString("base64") });
-    const stored = await caller.interview.completeResumeUpload({ uploadId: upload.uploadId });
-    const started = await caller.interview.start({ name: "Test candidate", role: "AI engineer", resume: { name: "candidate.pdf", mimeType: "application/pdf", storageKey: stored.key } });
+    const started = await caller.interview.start({ name: "Test candidate", role: "AI engineer", resume: { name: "candidate.pdf", text: "Built retrieval systems with Python, LLM evaluation, and production APIs." } });
 
     expect(started.resumeUsed).toBe(true);
-    expect(mocks.storageGetSignedUrl).toHaveBeenCalledWith(stored.key);
-    expect(mocks.storagePut).toHaveBeenCalledTimes(1);
+    expect(mocks.storagePut).not.toHaveBeenCalled();
   });
 
   it("propagates a transcription-service failure as a useful submission error", async () => {
