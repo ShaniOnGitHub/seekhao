@@ -11,7 +11,7 @@ vi.mock("./_core/llm", () => ({ invokeLLM: mocks.invokeLLM }));
 vi.mock("./_core/voiceTranscription", () => ({ transcribeAudio: mocks.transcribeAudio }));
 vi.mock("./storage", () => ({ storageGetSignedUrl: mocks.storageGetSignedUrl, storagePut: mocks.storagePut }));
 
-import { appRouter } from "./routers";
+import { appRouter, submitRecordedAnswer } from "./routers";
 
 function createCaller() {
   return appRouter.createCaller({
@@ -39,11 +39,8 @@ async function startInterview() {
   return createCaller().interview.start({ name: "Test candidate", role: "AI engineer" });
 }
 
-async function submitStagedAnswer(sessionId: string) {
-  const caller = createCaller();
-  const upload = await caller.interview.beginAnswerUpload({ sessionId, mimeType: "audio/webm" });
-  await caller.interview.appendAnswerUpload({ uploadId: upload.uploadId, chunkBase64: Buffer.from("audio").toString("base64") });
-  return caller.interview.submitAnswer({ sessionId, uploadId: upload.uploadId });
+async function submitRecordedTestAnswer(sessionId: string) {
+  return submitRecordedAnswer(sessionId, Buffer.from("audio"), "audio/webm");
 }
 
 describe("seekho interview router error and fallback behavior", () => {
@@ -56,7 +53,7 @@ describe("seekho interview router error and fallback behavior", () => {
   });
 
   it("rejects an expired practice session before attempting an upload", async () => {
-    await expect(createCaller().interview.beginAnswerUpload({ sessionId: "missing", mimeType: "audio/webm" })).rejects.toMatchObject({ code: "NOT_FOUND", message: "this practice session has expired. start another one." });
+    await expect(submitRecordedAnswer("missing", Buffer.from("audio"), "audio/webm")).rejects.toMatchObject({ code: "NOT_FOUND", message: "this practice session has expired. start another one." });
     expect(mocks.storagePut).not.toHaveBeenCalled();
   });
 
@@ -72,16 +69,16 @@ describe("seekho interview router error and fallback behavior", () => {
     const started = await startInterview();
     mocks.transcribeAudio.mockResolvedValue({ error: "we could not transcribe that recording" });
 
-    await expect(submitStagedAnswer(started.sessionId)).rejects.toMatchObject({ code: "BAD_REQUEST", message: "we could not transcribe that recording" });
+    await expect(submitRecordedTestAnswer(started.sessionId)).rejects.toMatchObject({ code: "BAD_REQUEST", message: "we could not transcribe that recording" });
   });
 
   it("returns a safe report when the final structured AI response is malformed", async () => {
     installSuccessfulAiMocks({ malformedReport: true });
     const started = await startInterview();
-    let finalResult: Awaited<ReturnType<ReturnType<typeof createCaller>["interview"]["submitAnswer"]>> | undefined;
+    let finalResult: Awaited<ReturnType<typeof submitRecordedTestAnswer>> | undefined;
 
     for (let index = 0; index < 5; index += 1) {
-      finalResult = await submitStagedAnswer(started.sessionId);
+      finalResult = await submitRecordedTestAnswer(started.sessionId);
     }
 
     expect(finalResult?.complete).toBe(true);

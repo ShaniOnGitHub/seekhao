@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { appRouter } from "../server/routers.ts";
+import { appRouter, submitRecordedAnswer } from "../server/routers.ts";
 
 const audio = (await readFile("/tmp/seekho-answer.mp3")).toString("base64");
 const caller = appRouter.createCaller({
@@ -26,12 +26,7 @@ if (!started.resumeUsed) {
 
 let result;
 for (let index = 0; index < started.maxQuestions; index += 1) {
-  const answerUpload = await caller.interview.beginAnswerUpload({
-    sessionId: started.sessionId,
-    mimeType: "audio/mpeg",
-  });
-  await caller.interview.appendAnswerUpload({ uploadId: answerUpload.uploadId, chunkBase64: audio });
-  result = await caller.interview.submitAnswer({ sessionId: started.sessionId, uploadId: answerUpload.uploadId });
+  result = await submitRecordedAnswer(started.sessionId, Buffer.from(audio, "base64"), "audio/mpeg");
 
   if (!result.transcript || !/rag|retrieval|faithfulness/i.test(result.transcript)) {
     throw new Error(`Expected a meaningful transcription at question ${index + 1}, received: ${result.transcript}`);
