@@ -29,3 +29,6 @@
 - [x] Verify the deployed browser is serving the latest resume-upload repair rather than a stale client bundle.
 - [x] Audit commit history, author attribution, and private-repository visibility affecting GitHub contribution counts.
 - [x] Attribute the existing legitimate seekho commits to the connected verified GitHub email and push the corrected private history.
+- [x] Replace the in-memory multi-request resume upload handshake that can lose state before completion, then pass browser and automated validation.
+- [x] Validate browser-side PDF text extraction with a real PDF before closing the resume repair.
+- [x] Add unit coverage for bounded resume-text normalization used by the new client-side transport.

@@ -1,6 +1,7 @@
 import { useFirebaseAuth } from "@/_core/hooks/useFirebaseAuth";
 import { signInWithGoogle } from "@/lib/firebase";
 import { browserVoiceMessage, interviewRequestErrorMessage, microphoneErrorMessage, normaliseAudioMimeType, type AudioMimeType } from "@/lib/interviewBrowser";
+import { extractResumeText } from "@/lib/resumeText";
 import { trpc } from "@/lib/trpc";
 import { ArrowLeft, ArrowRight, Check, FileText, Mic, Pause, RotateCcw, Sparkles, Square, UploadCloud, Volume2, X } from "lucide-react";
 import { type ChangeEvent, type DragEvent, useEffect, useRef, useState } from "react";
@@ -8,7 +9,6 @@ import { toast } from "sonner";
 import { useLocation } from "wouter";
 
 const roles = ["ai engineer", "software engineer", "data analyst", "product manager", "product designer", "other"];
-const RESUME_CHUNK_BYTES = 320 * 1024;
 const ANSWER_CHUNK_BYTES = 320 * 1024;
 type InterviewStart = { sessionId: string; questionNumber: number; maxQuestions: number; question: string; focus: string; resumeUsed: boolean };
 type Feedback = { score: number; feedback: string; strength: string; focus: string; nextCue: string };
@@ -28,9 +28,6 @@ function Stars({ score }: { score: number }) { return <div className="flex gap-1
 export default function Interview() {
   const { isAuthenticated, loading, configured } = useFirebaseAuth();
   const [, setLocation] = useLocation();
-  const beginResumeUpload = trpc.interview.beginResumeUpload.useMutation();
-  const appendResumeUpload = trpc.interview.appendResumeUpload.useMutation();
-  const completeResumeUpload = trpc.interview.completeResumeUpload.useMutation();
   const startInterview = trpc.interview.start.useMutation();
   const beginAnswerUpload = trpc.interview.beginAnswerUpload.useMutation();
   const appendAnswerUpload = trpc.interview.appendAnswerUpload.useMutation();
@@ -38,6 +35,7 @@ export default function Interview() {
   const [name, setName] = useState("");
   const [role, setRole] = useState("ai engineer");
   const [resume, setResume] = useState<File | null>(null);
+  const [preparingResume, setPreparingResume] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [practice, setPractice] = useState<InterviewStart | null>(null);
   const [question, setQuestion] = useState("");
@@ -98,21 +96,17 @@ export default function Interview() {
     if (!name.trim()) { toast.error("add your name to start your practice."); return; }
     primeSpeech();
     try {
-      let resumeInput: { name: string; mimeType: "application/pdf" | "text/plain"; storageKey: string } | undefined;
+      let resumeInput: { name: string; text: string } | undefined;
       if (resume) {
-        const mimeType = resume.type as "application/pdf" | "text/plain";
-        const upload = await beginResumeUpload.mutateAsync({ name: resume.name, mimeType });
-        for (let offset = 0; offset < resume.size; offset += RESUME_CHUNK_BYTES) {
-          const part = new File([resume.slice(offset, offset + RESUME_CHUNK_BYTES)], resume.name, { type: mimeType });
-          await appendResumeUpload.mutateAsync({ uploadId: upload.uploadId, chunkBase64: await readFileAsBase64(part) });
-        }
-        const stored = await completeResumeUpload.mutateAsync({ uploadId: upload.uploadId });
-        resumeInput = { name: resume.name, mimeType, storageKey: stored.key };
+        setPreparingResume(true);
+        resumeInput = { name: resume.name, text: await extractResumeText(resume) };
+        setPreparingResume(false);
       }
       const started = await startInterview.mutateAsync({ name: name.trim(), role, resume: resumeInput });
       setPractice(started); setQuestion(started.question); setFocus(started.focus); setQuestionNumber(started.questionNumber); setCaption(started.question); setTranscript(""); setFeedback(null); setVoiceState("idle");
       speak(started.question);
     } catch (error) { toast.error(interviewRequestErrorMessage(error, "we couldn't start your practice. try again.")); }
+    finally { setPreparingResume(false); }
   };
   const startRecording = async () => {
     try {
@@ -152,7 +146,7 @@ export default function Interview() {
   if (loading) return <main className="dusk-page grid min-h-screen place-items-center text-sm text-white/60">opening your practice room…</main>;
   if (!isAuthenticated) return <main className="dusk-page grid min-h-screen place-items-center px-5"><div className="glass-panel max-w-md rounded-[2rem] p-3"><div className="gradient-card overflow-hidden rounded-[1.6rem] p-8 text-center text-white"><span className="seekho-wordmark text-4xl font-medium">seekho</span><div className="mx-auto mt-8 flex h-10 items-end justify-center gap-1.5">{[16,28,38,21,34,14,29].map((height,index)=><span className="wave-bar w-1.5 rounded-full bg-white" style={{height}} key={index} />)}</div><p className="mt-7 text-sm text-white/68">your practice room is ready</p><h1 className="mt-2 text-3xl tracking-[-.06em]">sign in to continue.</h1><button onClick={() => configured ? signInWithGoogle().catch(() => toast.error("we couldn't open google sign-in.")) : toast.error("google sign-in will be ready once firebase is connected.")} className="mt-7 rounded-full bg-white px-5 py-3 text-sm font-medium text-[#111111]">continue with google</button></div></div></main>;
   if (report) return <ReportView name={name} role={role} report={report} onAgain={reset} onHome={() => setLocation("/")} />;
-  if (!practice) return <Onboarding name={name} role={role} resume={resume} dragging={dragging} busy={beginResumeUpload.isPending || appendResumeUpload.isPending || completeResumeUpload.isPending || startInterview.isPending} onName={setName} onRole={setRole} onFileChange={onFileChange} onDrop={onDrop} onDragging={setDragging} onRemove={() => setResume(null)} onBegin={begin} onBack={() => setLocation("/")} />;
+  if (!practice) return <Onboarding name={name} role={role} resume={resume} dragging={dragging} busy={preparingResume || startInterview.isPending} onName={setName} onRole={setRole} onFileChange={onFileChange} onDrop={onDrop} onDragging={setDragging} onRemove={() => setResume(null)} onBegin={begin} onBack={() => setLocation("/")} />;
   return <PracticeRoom name={name} role={role} question={question} focus={focus} number={questionNumber} max={practice.maxQuestions} caption={caption} transcript={transcript} feedback={feedback} recording={recording} elapsed={elapsed} busy={beginAnswerUpload.isPending || appendAnswerUpload.isPending || submitAnswer.isPending} voiceState={voiceState} onSpeak={() => { setCaption(question); speak(question); }} onRecord={startRecording} onStop={stopRecording} onContinue={continuePractice} onExit={reset} />;
 }
 

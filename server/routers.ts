@@ -11,10 +11,7 @@ import { isRoundComplete, MAX_QUESTIONS, normaliseScore, parseJson, questionNumb
 import { storageGetSignedUrl, storagePut } from "./storage";
 
 const sessions = new Map<string, InterviewSession>();
-const pendingResumeUploads = new Map<string, { name: string; mimeType: "application/pdf" | "text/plain"; chunks: Buffer[]; byteLength: number; createdAt: number }>();
 const pendingAnswerUploads = new Map<string, { sessionId: string; mimeType: "audio/webm" | "audio/mp4" | "audio/mpeg" | "audio/wav" | "audio/ogg"; chunks: Buffer[]; byteLength: number; createdAt: number }>();
-const MAX_FILE_BYTES = 5 * 1024 * 1024;
-const MAX_RESUME_CHUNK_BYTES = 320 * 1024;
 const MAX_ANSWER_BYTES = 16 * 1024 * 1024;
 const MAX_ANSWER_CHUNK_BYTES = 320 * 1024;
 const SEEKHO_TEXT_MODEL = "gemini-3-flash-preview";
@@ -107,39 +104,10 @@ export const appRouter = router({
   }),
 
   interview: router({
-    beginResumeUpload: publicProcedure.input(z.object({ name: z.string().min(1).max(180), mimeType: z.enum(["application/pdf", "text/plain"]) })).mutation(({ input }) => {
-      const now = Date.now();
-      for (const [id, upload] of Array.from(pendingResumeUploads.entries())) if (now - upload.createdAt > 10 * 60 * 1000) pendingResumeUploads.delete(id);
-      const uploadId = nanoid();
-      pendingResumeUploads.set(uploadId, { ...input, chunks: [], byteLength: 0, createdAt: now });
-      return { uploadId };
-    }),
-    appendResumeUpload: publicProcedure.input(z.object({ uploadId: z.string().min(1), chunkBase64: z.string().min(1) })).mutation(({ input }) => {
-      const upload = pendingResumeUploads.get(input.uploadId);
-      if (!upload) throw new TRPCError({ code: "NOT_FOUND", message: "that resume upload has expired. choose the file again and retry." });
-      const chunk = Buffer.from(input.chunkBase64, "base64");
-      if (!chunk.byteLength || chunk.byteLength > MAX_RESUME_CHUNK_BYTES) throw new TRPCError({ code: "BAD_REQUEST", message: "that resume chunk could not be read. choose the file again and retry." });
-      if (upload.byteLength + chunk.byteLength > MAX_FILE_BYTES) throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "keep your resume under 5mb" });
-      upload.chunks.push(chunk);
-      upload.byteLength += chunk.byteLength;
-      return { receivedBytes: upload.byteLength };
-    }),
-    completeResumeUpload: publicProcedure.input(z.object({ uploadId: z.string().min(1) })).mutation(async ({ input }) => {
-      const upload = pendingResumeUploads.get(input.uploadId);
-      if (!upload || !upload.byteLength) throw new TRPCError({ code: "NOT_FOUND", message: "that resume upload has expired. choose the file again and retry." });
-      pendingResumeUploads.delete(input.uploadId);
-      const stored = await storagePut(`seekho/resumes/${nanoid()}-${upload.name}`, Buffer.concat(upload.chunks), upload.mimeType);
-      return { key: stored.key };
-    }),
-    start: publicProcedure.input(z.object({ name: z.string().trim().min(1).max(80), role: z.string().trim().min(2).max(120), resume: z.object({ name: z.string().max(180), mimeType: z.enum(["application/pdf", "text/plain"]), storageKey: z.string().min(1) }).optional() })).mutation(async ({ input }) => {
+    start: publicProcedure.input(z.object({ name: z.string().trim().min(1).max(80), role: z.string().trim().min(2).max(120), resume: z.object({ name: z.string().max(180), text: z.string().trim().min(1).max(16_000) }).optional() })).mutation(async ({ input }) => {
       let resumeSummary = "";
       if (input.resume) {
-        if (!input.resume.storageKey.startsWith("seekho/resumes/")) throw new TRPCError({ code: "BAD_REQUEST", message: "the uploaded resume could not be found. choose it again and retry." });
-        const signedUrl = await storageGetSignedUrl(input.resume.storageKey);
-        const content = input.resume.mimeType === "text/plain"
-          ? (await (await fetch(signedUrl)).text()).slice(0, 16_000)
-          : [{ type: "file_url" as const, file_url: { url: signedUrl, mime_type: "application/pdf" as const } }];
-        const resumeResponse = await invokeLLM({ model: SEEKHO_TEXT_MODEL, max_tokens: 1024, messages: [{ role: "system", content: "Summarise this resume in no more than 120 words for an interview coach. Focus on claimed experience, tools, projects, and seniority. Do not invent anything." }, { role: "user", content }] });
+        const resumeResponse = await invokeLLM({ model: SEEKHO_TEXT_MODEL, max_tokens: 1024, messages: [{ role: "system", content: "Summarise this resume in no more than 120 words for an interview coach. Focus on claimed experience, tools, projects, and seniority. Do not invent anything." }, { role: "user", content: `resume filename: ${input.resume.name}\nresume text:\n${input.resume.text}` }] });
         resumeSummary = extractContent(resumeResponse).slice(0, 2_500);
       }
       const session: InterviewSession = { id: nanoid(), name: input.name, role: input.role, resumeSummary, questions: [], answers: [], createdAt: Date.now() };
