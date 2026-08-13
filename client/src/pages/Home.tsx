@@ -1,25 +1,33 @@
-import { Button } from "@/components/ui/button";
-import { Loader2 } from "lucide-react";
-import { Streamdown } from 'streamdown';
+import { useFirebaseAuth } from "@/_core/hooks/useFirebaseAuth";
+import { signInWithGoogle } from "@/lib/firebase";
+import { ArrowDownRight, ArrowUpRight, AudioLines, CheckCircle2, Sparkles } from "lucide-react";
+import { useEffect } from "react";
+import { useLocation } from "wouter";
+import { toast } from "sonner";
 
-/**
- * All content in this page are only for example, replace with your own feature implementation
- * When building pages, remember your instructions in Frontend Best Practices, Design Guide and Common Pitfalls
- */
+const steps = [["01", "tell us your target", "share your role and optionally your resume. we find the topics worth practising."], ["02", "say it out loud", "listen to a tailored question, then reason through it in your own voice."], ["03", "learn the signal", "see your words as live captions and get focused feedback after every answer."]];
+function Brand() { return <div className="flex items-center gap-2.5 text-[#f7f7f7]" aria-label="seekho home"><span className="grid h-8 w-8 place-items-center rounded-[11px] gradient-card text-sm font-medium text-[#111111]">s</span><span className="seekho-wordmark text-[1.65rem] font-medium">seekho</span></div>; }
+
 export default function Home() {
-  // If theme is switchable in App.tsx, we can implement theme toggling like this:
-  // const { theme, toggleTheme } = useTheme();
+  const { isAuthenticated, loading, configured } = useFirebaseAuth();
+  const [, setLocation] = useLocation();
+  useEffect(() => { if (isAuthenticated && sessionStorage.getItem("seekho-after-login") === "interview") { sessionStorage.removeItem("seekho-after-login"); setLocation("/interview"); } }, [isAuthenticated, setLocation]);
+  const begin = async () => {
+    if (isAuthenticated) { setLocation("/interview"); return; }
+    if (!configured) { toast.error("google sign-in will be ready once firebase is connected."); return; }
+    try { sessionStorage.setItem("seekho-after-login", "interview"); await signInWithGoogle(); } catch { toast.error("we couldn't open google sign-in. please try again."); }
+  };
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <main>
-        {/* Example: lucide-react for icons */}
-        <Loader2 className="animate-spin" />
-        Example Page
-        {/* Example: Streamdown for markdown rendering */}
-        <Streamdown>Any **markdown** content</Streamdown>
-        <Button variant="default">Example Button</Button>
-      </main>
-    </div>
+    <main className="dusk-page">
+      <nav className="mx-auto flex w-full max-w-[1440px] items-center justify-between px-5 py-5 sm:px-8 lg:px-12"><Brand /><div className="hidden items-center gap-7 text-sm md:flex"><a className="muted-link" href="#how-it-works">how it works</a><a className="muted-link" href="#roles">for your role</a></div><button onClick={begin} disabled={loading} className="rose-button rounded-full px-4 py-2 text-sm font-medium sm:px-5">{loading ? "checking access" : isAuthenticated ? "your space" : "sign in"}</button></nav>
+      <section className="mx-auto grid min-h-[calc(100vh-90px)] max-w-[1440px] grid-cols-1 items-center gap-14 px-5 pb-20 pt-12 sm:px-8 md:pt-16 lg:grid-cols-[1.06fr_.94fr] lg:px-12 lg:pb-28 lg:pt-4">
+        <div className="enter-up max-w-3xl"><div className="mb-6 flex items-center gap-2 text-sm text-[#f7f7f7]/60"><span className="h-2 w-2 rounded-full bg-[#f7f7f7] shadow-[0_0_0_5px_rgba(247,247,247,.12)]" />voice-first interview practice</div><h1 className="max-w-[760px] text-[clamp(3.55rem,8vw,7.45rem)] leading-[.89] tracking-[-.075em] text-[#f7f7f7]">say it out loud.<br /><span className="text-[#e6cece]">learn what</span> matters.</h1><p className="mt-8 max-w-xl text-lg leading-relaxed tracking-[-.025em] text-[#f7f7f7]/68 sm:text-xl">a calm space to practise the questions your next role is really going to ask — and learn how your thinking lands.</p><div className="mt-10 flex flex-wrap items-center gap-4"><button onClick={begin} disabled={loading} className="rose-button inline-flex items-center gap-3 rounded-full px-6 py-3.5 text-base font-medium">try for free <ArrowUpRight className="h-4 w-4" strokeWidth={2.1} /></button><span className="text-sm text-[#f7f7f7]/52">no card. just a conversation.</span></div></div>
+        <div className="enter-up-delay relative mx-auto w-full max-w-[550px] lg:max-w-none"><div className="absolute -inset-14 rounded-full bg-[#b9a0a0]/15 blur-3xl" /><div className="glass-panel relative overflow-hidden rounded-[2.2rem] p-3 sm:p-4"><div className="gradient-card relative flex min-h-[430px] flex-col justify-between overflow-hidden rounded-[1.65rem] p-7 text-[#f7f7f7] sm:min-h-[510px] sm:p-9"><div className="absolute -right-20 -top-20 h-64 w-64 rounded-full border border-white/10" /><div className="absolute -bottom-32 -left-24 h-72 w-72 rounded-full border border-white/10" /><div className="relative flex items-start justify-between"><span className="seekho-wordmark text-[3.3rem] font-medium sm:text-[4.35rem]">seekho</span><span className="rounded-full border border-white/25 bg-black/10 px-3 py-1 text-xs text-white/80">voice coach</span></div><div className="relative rounded-[1.35rem] border border-white/20 bg-[#111111]/25 p-5 backdrop-blur-md sm:p-6"><p className="text-sm text-white/55">now practising for</p><p className="mt-1 text-xl tracking-[-.045em] sm:text-2xl">ai engineering</p><div className="my-6 flex h-12 items-center justify-between gap-1.5">{Array.from({length:26}).map((_,index)=><span key={index} className="wave-bar w-1 rounded-full bg-[#f7f7f7]" style={{height:`${14+((index*17)%38)}px`}} />)}</div><div className="flex items-center gap-2 text-sm text-white/72"><AudioLines className="h-4 w-4" />"talk me through how you would evaluate your rag pipeline."</div></div><div className="relative flex items-center justify-between text-sm text-white/62"><span>tailored to your role</span><ArrowDownRight className="h-4 w-4" /></div></div></div></div>
+      </section>
+      <section id="how-it-works" className="border-y border-white/10 bg-[#111111]/58 px-5 py-20 backdrop-blur-xl sm:px-8 lg:px-12 lg:py-28"><div className="mx-auto max-w-[1360px]"><div className="mb-12 flex flex-col justify-between gap-5 md:flex-row md:items-end lg:mb-16"><div><p className="mb-3 text-sm text-[#b9a0a0]">a better kind of practice</p><h2 className="max-w-2xl text-4xl leading-[.98] tracking-[-.06em] sm:text-5xl">made for the parts you cannot rehearse in a doc.</h2></div><p className="max-w-sm text-sm leading-relaxed text-white/52">short, specific, and spoken. seekho leaves the rote answers behind and listens for how you think.</p></div><div className="grid gap-px overflow-hidden rounded-[1.5rem] border border-white/10 bg-white/10 md:grid-cols-3">{steps.map(([number,title,description])=><article key={number} className="min-h-[245px] bg-[#171313]/88 p-7 sm:p-8"><p className="text-sm text-[#b9a0a0]">{number}</p><h3 className="mt-12 text-2xl tracking-[-.05em]">{title}</h3><p className="mt-4 max-w-xs text-sm leading-relaxed text-white/52">{description}</p></article>)}</div></div></section>
+      <section id="roles" className="mx-auto grid max-w-[1440px] grid-cols-1 gap-10 px-5 py-20 sm:px-8 lg:grid-cols-[.78fr_1.22fr] lg:px-12 lg:py-28"><div><p className="mb-4 text-sm text-[#b9a0a0]">not one-size-fits-all</p><h2 className="max-w-md text-4xl leading-[.98] tracking-[-.06em] sm:text-5xl">your role sets the room.</h2></div><div className="grid grid-cols-1 gap-3 sm:grid-cols-2">{["ai engineering · rag, llms, langchain, multimodal, mcp","product management · strategy, trade-offs, influence","software engineering · systems, code, decision-making","data & analytics · insight, methods, communication"].map((role,index)=><div key={role} className="glass-panel flex min-h-[116px] items-end justify-between rounded-[1.35rem] p-5 text-base leading-snug text-[#f7f7f7]/90"><span>{role}</span>{index===0?<Sparkles className="h-4 w-4 text-[#e6cece]"/>:<CheckCircle2 className="h-4 w-4 text-[#b9a0a0]"/>}</div>)}</div></section>
+      <footer className="mx-auto flex max-w-[1440px] items-center justify-between px-5 py-8 text-sm text-white/42 sm:px-8 lg:px-12"><Brand /><span>learn your interview out loud.</span></footer>
+    </main>
   );
 }
