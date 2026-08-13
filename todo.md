@@ -1,0 +1,22 @@
+# Project TODO
+
+- [x] Establish the Dusk Ritual visual system: Poppins typography, warm rose-to-charcoal gradient tokens, responsive shell, and branded seekho wordmark treatment.
+- [x] Build the landing page with navigation, value proposition, visual gradient card, and Try for free entry point.
+- [x] Wire the Firebase Google sign-in access gate and its redirect-to-interview behavior.
+- [x] Build onboarding fields for candidate name and target role, including role-specific interview context.
+- [x] Build a resume drop zone with file validation and optional upload handling.
+- [x] Add server-side built-in AI procedures for resume context, tailored question generation, answer evaluation, and final reporting.
+- [x] Add server-side built-in Whisper transcription for MediaRecorder answer audio.
+- [ ] Verify audible browser playback for opening questions and feedback, with a user-gesture replay control as a fallback.
+- [x] Build the five-question completion report with strengths, focus areas, and next steps.
+- [ ] Expand Vitest coverage for interview session transitions and representative AI/transcription error handling.
+- [ ] Verify desktop and mobile layouts, authenticated flow, browser microphone recording, and the complete interview journey.
+- [x] Apply and validate the supplied Firebase Web configuration for Google sign-in.
+- [x] Verify that Firebase authentication redirects a signed-in candidate to the interview onboarding route.
+- [x] Verify the complete sign-in-to-onboarding journey in a browser using a Google account.
+- [x] Diagnose and resolve the Firebase Google sign-in popup failure caused by an authorized-domain typo in the live preview.
+- [ ] Verify actual browser microphone capture after user permission is granted, including upload and transcription.
+- [ ] Diagnose and resolve missing spoken AI question playback in the interview room with an explicit replay fallback.
+- [ ] Independently re-test question generation, browser microphone capture, transcription, feedback playback, and report completion after the fixes.
+- [x] Add the requested AGENTS.md coding guidelines to the project root.
+- [ ] Push the completed seekho project to the requested GitHub repository.
