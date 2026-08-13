@@ -32,3 +32,6 @@
 - [x] Replace the in-memory multi-request resume upload handshake that can lose state before completion, then pass browser and automated validation.
 - [x] Validate browser-side PDF text extraction with a real PDF before closing the resume repair.
 - [x] Add unit coverage for bounded resume-text normalization used by the new client-side transport.
+- [x] Replace the in-memory multi-request recorded-audio upload state that fails for longer spoken answers, then pass live validation.
+- [x] Send each completed recording in one bounded same-origin binary request, without a temporary server-side upload ID, then pass live validation.
+- [ ] Verify a longer spoken answer completes upload, transcription, coaching, and next-question progression in a real browser.

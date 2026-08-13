@@ -11,10 +11,10 @@ import { isRoundComplete, MAX_QUESTIONS, normaliseScore, parseJson, questionNumb
 import { storageGetSignedUrl, storagePut } from "./storage";
 
 const sessions = new Map<string, InterviewSession>();
-const pendingAnswerUploads = new Map<string, { sessionId: string; mimeType: "audio/webm" | "audio/mp4" | "audio/mpeg" | "audio/wav" | "audio/ogg"; chunks: Buffer[]; byteLength: number; createdAt: number }>();
 const MAX_ANSWER_BYTES = 16 * 1024 * 1024;
-const MAX_ANSWER_CHUNK_BYTES = 320 * 1024;
 const SEEKHO_TEXT_MODEL = "gemini-3-flash-preview";
+
+export type AudioMimeType = "audio/webm" | "audio/mp4" | "audio/mpeg" | "audio/wav" | "audio/ogg";
 
 type QuestionResult = { question: string; focus: string; followUpHint: string };
 type ReportResult = { overallScore: number; summary: string; strengths: string[]; focusAreas: string[]; nextSteps: string[] };
@@ -73,7 +73,7 @@ async function makeReport(session: InterviewSession): Promise<ReportResult> {
   return { overallScore: typeof result.overallScore === "number" ? result.overallScore : fallback.overallScore, summary: result.summary || fallback.summary, strengths: result.strengths?.length ? result.strengths : fallback.strengths, focusAreas: result.focusAreas?.length ? result.focusAreas : fallback.focusAreas, nextSteps: result.nextSteps?.length ? result.nextSteps : fallback.nextSteps };
 }
 
-async function processUploadedAnswer(session: InterviewSession, audio: Buffer, mimeType: "audio/webm" | "audio/mp4" | "audio/mpeg" | "audio/wav" | "audio/ogg") {
+async function processUploadedAnswer(session: InterviewSession, audio: Buffer, mimeType: AudioMimeType) {
   const uploaded = await storagePut(`seekho/answers/${session.id}/${nanoid()}`, audio, mimeType);
   const signedUrl = await storageGetSignedUrl(uploaded.key);
   const transcription = await transcribeAudio({ audioUrl: signedUrl, language: "en", prompt: `Transcribe an interview answer for a ${session.role} role. Preserve technical terms such as RAG, LLM, LangChain, multimodal, and MCP.` });
@@ -87,6 +87,14 @@ async function processUploadedAnswer(session: InterviewSession, audio: Buffer, m
   const next = await makeQuestion(session);
   session.questions.push(next.question);
   return { transcript: transcription.text, feedback, complete: false, nextQuestion: next.question, nextFocus: next.focus, questionNumber: questionNumberFor(session.answers.length), maxQuestions: MAX_QUESTIONS };
+}
+
+export async function submitRecordedAnswer(sessionId: string, audio: Buffer, mimeType: AudioMimeType) {
+  const session = sessions.get(sessionId);
+  if (!session) throw new TRPCError({ code: "NOT_FOUND", message: "this practice session has expired. start another one." });
+  if (!audio.byteLength) throw new TRPCError({ code: "BAD_REQUEST", message: "we didn't receive an audio sample. check your microphone permission and try again." });
+  if (audio.byteLength > MAX_ANSWER_BYTES) throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "keep each answer recording under 16mb" });
+  return processUploadedAnswer(session, audio, mimeType);
 }
 
 export const appRouter = router({
@@ -115,33 +123,6 @@ export const appRouter = router({
       session.questions.push(first.question);
       sessions.set(session.id, session);
       return { sessionId: session.id, questionNumber: 1, maxQuestions: MAX_QUESTIONS, question: first.question, focus: first.focus, resumeUsed: Boolean(resumeSummary) };
-    }),
-    beginAnswerUpload: publicProcedure.input(z.object({ sessionId: z.string().min(1), mimeType: z.enum(["audio/webm", "audio/mp4", "audio/mpeg", "audio/wav", "audio/ogg"]) })).mutation(({ input }) => {
-      const session = sessions.get(input.sessionId);
-      if (!session) throw new TRPCError({ code: "NOT_FOUND", message: "this practice session has expired. start another one." });
-      const now = Date.now();
-      for (const [id, upload] of Array.from(pendingAnswerUploads.entries())) if (now - upload.createdAt > 10 * 60 * 1000) pendingAnswerUploads.delete(id);
-      const uploadId = nanoid();
-      pendingAnswerUploads.set(uploadId, { ...input, chunks: [], byteLength: 0, createdAt: now });
-      return { uploadId };
-    }),
-    appendAnswerUpload: publicProcedure.input(z.object({ uploadId: z.string().min(1), chunkBase64: z.string().min(1) })).mutation(({ input }) => {
-      const upload = pendingAnswerUploads.get(input.uploadId);
-      if (!upload) throw new TRPCError({ code: "NOT_FOUND", message: "that answer upload has expired. record it again and retry." });
-      const chunk = Buffer.from(input.chunkBase64, "base64");
-      if (!chunk.byteLength || chunk.byteLength > MAX_ANSWER_CHUNK_BYTES) throw new TRPCError({ code: "BAD_REQUEST", message: "that answer chunk could not be read. record it again and retry." });
-      if (upload.byteLength + chunk.byteLength > MAX_ANSWER_BYTES) throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "keep each answer recording under 16mb" });
-      upload.chunks.push(chunk);
-      upload.byteLength += chunk.byteLength;
-      return { receivedBytes: upload.byteLength };
-    }),
-    submitAnswer: publicProcedure.input(z.object({ sessionId: z.string().min(1), uploadId: z.string().min(1) })).mutation(async ({ input }) => {
-      const session = sessions.get(input.sessionId);
-      if (!session) throw new TRPCError({ code: "NOT_FOUND", message: "this practice session has expired. start another one." });
-      const upload = pendingAnswerUploads.get(input.uploadId);
-      if (!upload || upload.sessionId !== session.id || !upload.byteLength) throw new TRPCError({ code: "NOT_FOUND", message: "that answer upload has expired. record it again and retry." });
-      pendingAnswerUploads.delete(input.uploadId);
-      return processUploadedAnswer(session, Buffer.concat(upload.chunks), upload.mimeType);
     }),
   }),
 });
