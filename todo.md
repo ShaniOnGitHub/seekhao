@@ -21,3 +21,4 @@
 - [x] Add the requested AGENTS.md coding guidelines to the project root.
 - [x] Push the completed seekho project to the requested GitHub repository.
 - [x] Add router-level tests for transcription failures, expired sessions, and malformed final-report AI output.
+- [x] Keep the landing-page “try for free” CTA fully visible in the initial desktop viewport.
