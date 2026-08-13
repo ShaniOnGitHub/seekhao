@@ -22,3 +22,6 @@
 - [x] Push the completed seekho project to the requested GitHub repository.
 - [x] Add router-level tests for transcription failures, expired sessions, and malformed final-report AI output.
 - [x] Keep the landing-page “try for free” CTA fully visible in the initial desktop viewport.
+- [x] Fix the interview-start request that returns an HTML response instead of the expected tRPC JSON payload.
+- [x] Upload resumes in small server-mediated chunks so 5 MB files avoid gateway payload limits and browser cross-origin restrictions.
+- [x] Update the live voice end-to-end fixture to create a stored resume reference under the repaired upload contract and pass the full live pipeline.
