@@ -119,9 +119,19 @@ export default function Interview() {
     setSubmittingAnswer(true);
     try {
       if (blob.size > 16 * 1024 * 1024) throw new Error("keep each answer recording under 16mb");
-      const response = await fetch(`/api/interview/audio?sessionId=${encodeURIComponent(practice.sessionId)}`, { method: "POST", headers: { "Content-Type": mimeType }, body: blob });
-      const payload = await response.json().catch(() => ({ message: "the recording service returned an unreadable response. refresh once and try again." }));
-      if (!response.ok) throw new Error(typeof payload.message === "string" ? payload.message : "we couldn't process that answer.");
+      let response: Response | undefined;
+      let payload: { message?: string } | AnswerResult | undefined;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        response = await fetch(`/api/interview/audio?sessionId=${encodeURIComponent(practice.sessionId)}`, { method: "POST", headers: { "Accept": "application/json", "Content-Type": mimeType }, body: blob, cache: "no-store" });
+        const contentType = response.headers.get("content-type") || "";
+        if (contentType.includes("application/json")) {
+          payload = await response.json() as { message?: string } | AnswerResult;
+          break;
+        }
+        if (attempt === 0) await new Promise(resolve => window.setTimeout(resolve, 350));
+      }
+      if (!response || !payload) throw new Error("the recording service returned an unreadable response after retrying. please refresh once and try again.");
+      if (!response.ok) throw new Error("message" in payload && typeof payload.message === "string" ? payload.message : "we couldn't process that answer.");
       const result = payload as AnswerResult;
       setTranscript(result.transcript); setCaption(result.transcript); setFeedback(result.feedback);
       speak(`${result.feedback.feedback}. next time: ${result.feedback.nextCue}`);
