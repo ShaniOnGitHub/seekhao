@@ -21,6 +21,9 @@ export async function setupVite(app: Express, server: Server) {
   });
 
   app.use(vite.middlewares);
+  app.use("/api", (_req, res) => {
+    res.status(404).json({ message: "this api route is unavailable. refresh once and try again." });
+  });
   app.use("*", async (req, res, next) => {
     const url = req.originalUrl;
 

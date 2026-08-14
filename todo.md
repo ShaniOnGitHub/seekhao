@@ -39,4 +39,6 @@
 - [x] Prefer an available woman-coded browser speech voice for spoken interview prompts, with graceful fallback.
 - [x] Start interviews with accessible fundamentals and progressively increase question difficulty across five turns.
 - [x] Add regression coverage for the woman-voice preference and easy-to-challenging interview progression.
-- [x] Update the live interview pipeline assertion for the new approachable AI-engineering opening question.
+- [ ] Update the live interview pipeline assertion for the new approachable AI-engineering opening question.
+- [x] Repair preview routing so `/api/interview/audio` always reaches the binary audio handler and returns JSON.
+- [x] Add a JSON-only API fallback and one safe retry for transient non-JSON audio-route responses.
