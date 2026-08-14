@@ -54,3 +54,19 @@
 - [x] Calibrate interview scoring so every submitted answer receives at least 2, while slightly correct answers are encouraged with 3 or 4 when warranted.
 - [x] Generate an overlapped next question from a snapshot that includes the current transcript, preserving the intended question number, difficulty, and answer context.
 - [x] Add regression coverage for state-consistent next-question generation during concurrent feedback processing.
+- [x] Vercel migration: Groq as primary LLM + transcription (promote existing fallbacks to primary, remove platform service dependency)
+- [x] Vercel migration: S3-compatible storage adapter for audio uploads (replace storagePut/storageGet usage)
+- [x] Vercel migration: serverless adaptation (tRPC HTTP adapter, express removal, vercel.json config, output config)
+- [x] Vercel migration: env vars documented + tests updated for new providers
+- [x] Vercel migration: validate with pnpm check, pnpm test, voice-e2e pipeline
+- [x] Vercel migration: push to GitHub and deliver deployment instructions
+- [x] Vercel migration: Groq as primary LLM + transcription (promote existing fallbacks to primary, remove platform service dependency)
+- [x] Vercel migration: S3-compatible storage adapter for audio uploads (replace storagePut/storageGet usage)
+- [x] Vercel migration: serverless adaptation (tRPC HTTP adapter, express removal, vercel.json config, output config)
+- [x] Vercel migration: env vars documented + tests updated for new providers
+- [x] Vercel migration: validate with pnpm check, pnpm test, voice-e2e pipeline
+- [x] Vercel migration: push to GitHub and deliver deployment instructions
+- [x] Vercel migration: use new Groq key [REDACTED] (update GROQ_API_KEY)
+- [x] Vercel migration: remove S3 storage — transcribe base64 audio directly to Groq Whisper in one request (no persistence)
+- [x] Vercel migration: Groq model for LLM is llama-3.3-70b-versatile; transcription is whisper-large-v3-turbo
+- [x] Voice picker: declined by user — keep the automatic woman-voice selection (no picker)

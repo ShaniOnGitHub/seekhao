@@ -23,26 +23,42 @@ const pendingAnswerUploads = new Map<string, PendingAnswerUpload>();
 type QuestionResult = { question: string; focus: string; followUpHint: string };
 type ReportResult = { overallScore: number; summary: string; strengths: string[]; focusAreas: string[]; nextSteps: string[] };
 
-async function invokeInterviewModel(request: Parameters<typeof invokeLLM>[0]) {
-  try {
-    return await invokeLLM(request);
-  } catch (error) {
-    const exhausted = error instanceof Error && error.message.includes("usage exhausted");
-    const apiKey = process.env.GROQ_API_KEY;
-    if (!exhausted || !apiKey) throw error;
-    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: request.messages, max_tokens: request.max_tokens, response_format: { type: "json_object" } }),
-    });
-    if (!response.ok) throw error;
-    return await response.json() as Awaited<ReturnType<typeof invokeLLM>>;
+// When GROQ_API_KEY is present (Vercel deployment), Groq is the primary model; the
+// platform service becomes the fallback so local development keeps working unchanged.
+const GROQ_TEXT_MODEL = "llama-3.3-70b-versatile";
+
+async function invokeGroqChat(request: Parameters<typeof invokeLLM>[0]): Promise<Awaited<ReturnType<typeof invokeLLM>>> {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) throw new Error("GROQ_API_KEY is not configured");
+  const format = request.response_format?.type === "json_schema"
+    ? { type: "json_object" as const }
+    : request.response_format ?? { type: "json_object" as const };
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: GROQ_TEXT_MODEL, messages: request.messages, max_tokens: request.max_tokens, response_format: format }),
+  });
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    throw new Error(`Groq chat request failed: ${response.status} ${response.statusText} – ${errorText}`);
   }
+  return (await response.json()) as Awaited<ReturnType<typeof invokeLLM>>;
 }
 
-async function transcribeWithGroqFallback(audio: Buffer, mimeType: AudioMimeType, prompt: string) {
+async function invokeInterviewModel(request: Parameters<typeof invokeLLM>[0]) {
+  if (process.env.GROQ_API_KEY) {
+    try {
+      return await invokeGroqChat(request);
+    } catch {
+      return await invokeLLM(request);
+    }
+  }
+  return invokeLLM(request);
+}
+
+// Direct in-memory transcription. Recordings are never persisted anywhere.
+async function transcribeDirectly(audio: Buffer, mimeType: AudioMimeType, prompt: string) {
   const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) return null;
   const extension = { "audio/webm": "webm", "audio/mp4": "mp4", "audio/mpeg": "mp3", "audio/wav": "wav", "audio/ogg": "ogg" }[mimeType];
   const audioBytes = new Uint8Array(audio.byteLength);
   audioBytes.set(audio);
@@ -52,14 +68,27 @@ async function transcribeWithGroqFallback(audio: Buffer, mimeType: AudioMimeType
   form.set("language", "en");
   form.set("prompt", prompt);
   form.set("response_format", "json");
-  try {
-    const response = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", { method: "POST", headers: { Authorization: `Bearer ${apiKey}` }, body: form });
-    if (!response.ok) return null;
-    const payload = await response.json() as { text?: unknown };
-    return typeof payload.text === "string" && payload.text.trim() ? payload.text.trim() : null;
-  } catch {
-    return null;
+  if (apiKey) {
+    try {
+      const response = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", { method: "POST", headers: { Authorization: `Bearer ${apiKey}` }, body: form });
+      if (response.ok) {
+        const payload = await response.json() as { text?: unknown };
+        if (typeof payload.text === "string" && payload.text.trim()) return payload.text.trim();
+      }
+    } catch {
+      // Fall through to the platform service when Groq is unavailable.
+    }
   }
+  const uploaded = await storagePut(`seekho/answers/temp/${nanoid()}`, audio, mimeType);
+  const signedUrl = await storageGetSignedUrl(uploaded.key);
+  const transcription = await transcribeAudio({ audioUrl: signedUrl, language: "en", prompt });
+  if ("error" in transcription) {
+    const message = transcription.details?.includes("usage exhausted")
+      ? "speech transcription is temporarily unavailable because its service quota has been reached. please try again later."
+      : transcription.error;
+    throw new TRPCError({ code: "BAD_REQUEST", message, cause: transcription });
+  }
+  return transcription.text.trim();
 }
 
 function extractContent(response: Awaited<ReturnType<typeof invokeLLM>>) {
@@ -118,29 +147,46 @@ async function makeReport(session: InterviewSession): Promise<ReportResult> {
 }
 
 async function processUploadedAnswer(session: InterviewSession, audio: Buffer, mimeType: AudioMimeType) {
-  const uploaded = await storagePut(`seekho/answers/${session.id}/${nanoid()}`, audio, mimeType);
-  const signedUrl = await storageGetSignedUrl(uploaded.key);
   const prompt = `Transcribe an interview answer for a ${session.role} role. Preserve technical terms such as RAG, LLM, LangChain, multimodal, and MCP.`;
-  const transcription = await transcribeAudio({ audioUrl: signedUrl, language: "en", prompt });
   let transcript: string;
-  if ("error" in transcription) {
-    const fallbackTranscript = transcription.details?.includes("usage exhausted") ? await transcribeWithGroqFallback(audio, mimeType, prompt) : null;
-    if (fallbackTranscript) transcript = fallbackTranscript;
-    else {
-      const message = transcription.details?.includes("usage exhausted") ? "speech transcription is temporarily unavailable because its service quota has been reached. please try again later." : transcription.error;
-      throw new TRPCError({ code: "BAD_REQUEST", message, cause: transcription });
-    }
-  } else {
-    transcript = transcription.text;
+  try {
+    transcript = await transcribeDirectly(audio, mimeType, prompt);
+  } catch (error) {
+    if (error instanceof TRPCError) throw error;
+    throw new TRPCError({ code: "BAD_REQUEST", message: "we couldn't transcribe your answer. please record it again.", cause: error });
   }
+  if (!transcript) throw new TRPCError({ code: "BAD_REQUEST", message: "your recording was empty. try speaking a little closer to the microphone." });
   const question = session.questions[session.answers.length];
   if (!question) throw new TRPCError({ code: "CONFLICT", message: "all questions have already been completed" });
-  const nextQuestionPromise = isRoundComplete(session.answers.length + 1) ? undefined : makeQuestion(session, [...session.answers, { question, transcript }]);
-  const feedback = await evaluateAnswer(session, question, transcript);
+  const aiError = new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "our ai hit a temporary problem. please retry this answer." });
+  let feedback: Feedback;
+  try {
+    feedback = await evaluateAnswer(session, question, transcript);
+  } catch {
+    throw aiError;
+  }
+  const nextQuestionTask = isRoundComplete(session.answers.length + 1)
+    ? Promise.resolve<{ question: string; focus: string; followUpHint: string } | null>(null)
+    : makeQuestion(session, [...session.answers, { question, transcript }]);
   session.answers.push({ question, transcript, feedback });
   const complete = isRoundComplete(session.answers.length);
-  if (complete) return { transcript, feedback, complete: true, report: await makeReport(session) };
-  const next = await nextQuestionPromise!;
+  if (complete) {
+    let report: ReportResult;
+    try {
+      report = await makeReport(session);
+    } catch {
+      throw aiError;
+    }
+    return { transcript, feedback, complete: true, report };
+  }
+  let next: { question: string; focus: string; followUpHint: string };
+  try {
+    const nextQuestion = await nextQuestionTask;
+    if (!nextQuestion) throw aiError;
+    next = nextQuestion;
+  } catch {
+    throw aiError;
+  }
   session.questions.push(next.question);
   return { transcript, feedback, complete: false, nextQuestion: next.question, nextFocus: next.focus, questionNumber: questionNumberFor(session.answers.length), maxQuestions: MAX_QUESTIONS };
 }
