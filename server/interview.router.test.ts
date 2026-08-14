@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   invokeLLM: vi.fn(),
@@ -48,10 +48,18 @@ async function submitRecordedTestAnswer(sessionId: string) {
 describe("seekho interview router error and fallback behavior", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Groq is the primary provider when GROQ_API_KEY is set. Platform-service
+    // mock paths (transcription failures, malformed responses, difficulty
+    // progression) stub the key off so the mocks stay authoritative.
+    vi.stubEnv("GROQ_API_KEY", "");
     mocks.storagePut.mockImplementation((key: string) => Promise.resolve({ key, url: `/manus-storage/${key}` }));
     mocks.storageGetSignedUrl.mockResolvedValue("https://storage.example/test-audio");
     mocks.transcribeAudio.mockResolvedValue({ text: "I would evaluate retrieval recall, faithfulness, latency, and cost." });
     installSuccessfulAiMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it("rejects an expired practice session before attempting an upload", async () => {
@@ -82,6 +90,7 @@ describe("seekho interview router error and fallback behavior", () => {
   });
 
   it("uses Groq only when the primary transcription service reports exhausted quota", async () => {
+    vi.stubEnv("GROQ_API_KEY", "test-key");
     const started = await startInterview();
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ text: "I would measure retrieval quality with recall, faithfulness, latency, and cost." }) });
     vi.stubGlobal("fetch", fetchMock);
@@ -93,6 +102,7 @@ describe("seekho interview router error and fallback behavior", () => {
   });
 
   it("uses Groq for interview feedback only after the primary model reports exhausted quota", async () => {
+    vi.stubEnv("GROQ_API_KEY", "test-key");
     const started = await startInterview();
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => completion('{"score":4,"feedback":"you connected evaluation metrics to the system goal.","strength":"clear metrics","focus":"add one trade-off","nextCue":"explain the constraint before your decision"}') });
     vi.stubGlobal("fetch", fetchMock);
@@ -103,7 +113,18 @@ describe("seekho interview router error and fallback behavior", () => {
     vi.unstubAllGlobals();
   });
 
+  it("translates an ai-model failure into a retry message instead of an unhandled crash", async () => {
+    // With Groq enabled and the platform mock rejecting, the router converts the
+    // failure into a user-facing INTERNAL_SERVER_ERROR with retry guidance.
+    vi.stubEnv("GROQ_API_KEY", "test-key");
+    const started = await startInterview();
+    mocks.invokeLLM.mockImplementation(() => Promise.reject(new Error("LLM invoke failed: 500 – platform unavailable")));
+
+    await expect(submitRecordedTestAnswer(started.sessionId)).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR", message: "our ai hit a temporary problem. please retry this answer." });
+  });
+
   it("raises an overly harsh model score to the encouraging two-point floor", async () => {
+    vi.stubEnv("GROQ_API_KEY", "");
     const started = await startInterview();
     mocks.invokeLLM.mockImplementation((request: { response_format?: { json_schema?: { name?: string } } }) => {
       const name = request.response_format?.json_schema?.name;
