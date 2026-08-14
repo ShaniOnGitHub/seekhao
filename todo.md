@@ -42,3 +42,10 @@
 - [x] Update the live interview pipeline assertion for the new approachable AI-engineering opening question.
 - [x] Repair preview routing so `/api/interview/audio` always reaches the binary audio handler and returns JSON.
 - [x] Add a JSON-only API fallback and one safe retry for transient non-JSON audio-route responses.
+- [x] Capture and diagnose the exact browser-side audio response that remains unreadable after the route retry.
+- [x] Replace the preview-bound binary audio upload with a browser-compatible transport that works for longer recordings.
+- [x] Determine that one whole-recording JSON submission can exceed the preview gateway threshold, then supersede it with a validated sequential tRPC chunk contract.
+- [x] Keep every JSON audio request below the measured preview-gateway threshold by submitting a completed recording in bounded sequential tRPC chunks.
+- [x] Present a clear retry-later message when the configured transcription service reports an exhausted quota.
+- [x] Use the user-provided Groq transcription service only if the primary Whisper service reports that its quota is exhausted.
+- [x] Use the user-provided Groq chat service only if the primary interview-question, feedback, or report model reports that its quota is exhausted.

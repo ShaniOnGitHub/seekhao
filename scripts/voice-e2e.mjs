@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises";
-import { appRouter, submitRecordedAnswer } from "../server/routers.ts";
+import { appRouter } from "../server/routers.ts";
 
 const audio = (await readFile("/tmp/seekho-answer.mp3")).toString("base64");
+const chunkLength = 56_000;
 const caller = appRouter.createCaller({
   user: null,
   req: { protocol: "https", headers: {} },
@@ -26,7 +27,13 @@ if (!started.resumeUsed) {
 
 let result;
 for (let index = 0; index < started.maxQuestions; index += 1) {
-  result = await submitRecordedAnswer(started.sessionId, Buffer.from(audio, "base64"), "audio/mpeg");
+  const uploadId = `voice-e2e-${index}`;
+  const totalChunks = Math.ceil(audio.length / chunkLength);
+  for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
+    const uploaded = await caller.interview.submitAnswerChunk({ sessionId: started.sessionId, uploadId, chunkIndex, chunkCount: totalChunks, mimeType: "audio/mpeg", audioBase64: audio.slice(chunkIndex * chunkLength, (chunkIndex + 1) * chunkLength) });
+    if (chunkIndex === totalChunks - 1) result = uploaded.result;
+  }
+  if (!result) throw new Error(`Expected a completed audio upload at question ${index + 1}.`);
 
   if (!result.transcript || !/rag|retrieval|faithfulness/i.test(result.transcript)) {
     throw new Error(`Expected a meaningful transcription at question ${index + 1}, received: ${result.transcript}`);

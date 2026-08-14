@@ -6,7 +6,6 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
-import { registerInterviewAudioRoute } from "../interviewAudio";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 
@@ -34,9 +33,6 @@ async function startServer() {
   const server = createServer(app);
   registerStorageProxy(app);
   registerOAuthRoutes(app);
-  registerInterviewAudioRoute(app);
-  // Configure body parsers after the raw audio route so a recording can never be
-  // consumed by a JSON middleware before it reaches its binary handler.
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   // tRPC API
@@ -47,12 +43,6 @@ async function startServer() {
       createContext,
     })
   );
-  app.use((error: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
-    if (req.path !== "/api/interview/audio") return next(error);
-    const status = typeof error === "object" && error && "status" in error && typeof error.status === "number" ? error.status : 400;
-    const type = typeof error === "object" && error && "type" in error ? error.type : "";
-    res.status(status).json({ message: type === "entity.too.large" ? "keep each answer recording under 16mb" : "the recording could not be read. record it again and retry." });
-  });
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);

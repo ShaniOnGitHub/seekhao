@@ -13,6 +13,16 @@ type InterviewStart = { sessionId: string; questionNumber: number; maxQuestions:
 type Feedback = { score: number; feedback: string; strength: string; focus: string; nextCue: string };
 type Report = { overallScore: number; summary: string; strengths: string[]; focusAreas: string[]; nextSteps: string[] };
 type AnswerResult = { transcript: string; feedback: Feedback; complete: boolean; report?: Report; nextQuestion?: string; nextFocus?: string; questionNumber?: number };
+type ChunkSubmission = { complete: boolean; receivedChunks: number; totalChunks: number; result?: AnswerResult };
+const AUDIO_CHUNK_BASE64_CHARS = 56_000;
+function readBlobAsBase64(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("we couldn't read that recording. record it again and retry."));
+    reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+    reader.readAsDataURL(blob);
+  });
+}
 function formatTime(seconds: number) { return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`; }
 function Stars({ score }: { score: number }) { return <div className="flex gap-1">{[1,2,3,4,5].map(star => <span key={star} className={star <= score ? "text-[#e6cece]" : "text-white/15"}>●</span>)}</div>; }
 
@@ -20,6 +30,7 @@ export default function Interview() {
   const { isAuthenticated, loading, configured } = useFirebaseAuth();
   const [, setLocation] = useLocation();
   const startInterview = trpc.interview.start.useMutation();
+  const submitAnswerChunk = trpc.interview.submitAnswerChunk.useMutation();
   const [name, setName] = useState("");
   const [role, setRole] = useState("ai engineer");
   const [resume, setResume] = useState<File | null>(null);
@@ -119,20 +130,16 @@ export default function Interview() {
     setSubmittingAnswer(true);
     try {
       if (blob.size > 16 * 1024 * 1024) throw new Error("keep each answer recording under 16mb");
-      let response: Response | undefined;
-      let payload: { message?: string } | AnswerResult | undefined;
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        response = await fetch(`/api/interview/audio?sessionId=${encodeURIComponent(practice.sessionId)}`, { method: "POST", headers: { "Accept": "application/json", "Content-Type": mimeType }, body: blob, cache: "no-store" });
-        const contentType = response.headers.get("content-type") || "";
-        if (contentType.includes("application/json")) {
-          payload = await response.json() as { message?: string } | AnswerResult;
-          break;
-        }
-        if (attempt === 0) await new Promise(resolve => window.setTimeout(resolve, 350));
+      const audioBase64 = await readBlobAsBase64(blob);
+      const totalChunks = Math.ceil(audioBase64.length / AUDIO_CHUNK_BASE64_CHARS);
+      const uploadId = crypto.randomUUID();
+      let result: AnswerResult | undefined;
+      for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
+        setCaption(`sending your answer ${chunkIndex + 1} of ${totalChunks}…`);
+        const chunk = await submitAnswerChunk.mutateAsync({ sessionId: practice.sessionId, uploadId, chunkIndex, chunkCount: totalChunks, mimeType, audioBase64: audioBase64.slice(chunkIndex * AUDIO_CHUNK_BASE64_CHARS, (chunkIndex + 1) * AUDIO_CHUNK_BASE64_CHARS) }) as ChunkSubmission;
+        if (chunkIndex === totalChunks - 1) result = chunk.result;
       }
-      if (!response || !payload) throw new Error("the recording service returned an unreadable response after retrying. please refresh once and try again.");
-      if (!response.ok) throw new Error("message" in payload && typeof payload.message === "string" ? payload.message : "we couldn't process that answer.");
-      const result = payload as AnswerResult;
+      if (!result) throw new Error("the recording upload was interrupted. record your answer again and retry.");
       setTranscript(result.transcript); setCaption(result.transcript); setFeedback(result.feedback);
       speak(`${result.feedback.feedback}. next time: ${result.feedback.nextCue}`);
       if (result.complete && result.report) setReport(result.report);
@@ -147,7 +154,7 @@ export default function Interview() {
   if (!isAuthenticated) return <main className="dusk-page grid min-h-screen place-items-center px-5"><div className="glass-panel max-w-md rounded-[2rem] p-3"><div className="gradient-card overflow-hidden rounded-[1.6rem] p-8 text-center text-white"><span className="seekho-wordmark text-4xl font-medium">seekho</span><div className="mx-auto mt-8 flex h-10 items-end justify-center gap-1.5">{[16,28,38,21,34,14,29].map((height,index)=><span className="wave-bar w-1.5 rounded-full bg-white" style={{height}} key={index} />)}</div><p className="mt-7 text-sm text-white/68">your practice room is ready</p><h1 className="mt-2 text-3xl tracking-[-.06em]">sign in to continue.</h1><button onClick={() => configured ? signInWithGoogle().catch(() => toast.error("we couldn't open google sign-in.")) : toast.error("google sign-in will be ready once firebase is connected.")} className="mt-7 rounded-full bg-white px-5 py-3 text-sm font-medium text-[#111111]">continue with google</button></div></div></main>;
   if (report) return <ReportView name={name} role={role} report={report} onAgain={reset} onHome={() => setLocation("/")} />;
   if (!practice) return <Onboarding name={name} role={role} resume={resume} dragging={dragging} busy={preparingResume || startInterview.isPending} onName={setName} onRole={setRole} onFileChange={onFileChange} onDrop={onDrop} onDragging={setDragging} onRemove={() => { setResume(null); setResumeText(""); }} onBegin={begin} onBack={() => setLocation("/")} />;
-  return <PracticeRoom name={name} role={role} question={question} focus={focus} number={questionNumber} max={practice.maxQuestions} caption={caption} transcript={transcript} feedback={feedback} recording={recording} elapsed={elapsed} busy={submittingAnswer} voiceState={voiceState} onSpeak={() => { setCaption(question); speak(question); }} onRecord={startRecording} onStop={stopRecording} onContinue={continuePractice} onExit={reset} />;
+  return <PracticeRoom name={name} role={role} question={question} focus={focus} number={questionNumber} max={practice.maxQuestions} caption={caption} transcript={transcript} feedback={feedback} recording={recording} elapsed={elapsed} busy={submittingAnswer || submitAnswerChunk.isPending} voiceState={voiceState} onSpeak={() => { setCaption(question); speak(question); }} onRecord={startRecording} onStop={stopRecording} onContinue={continuePractice} onExit={reset} />;
 }
 
 function Onboarding({ name, role, resume, dragging, busy, onName, onRole, onFileChange, onDrop, onDragging, onRemove, onBegin, onBack }: { name: string; role: string; resume: File | null; dragging: boolean; busy: boolean; onName: (value: string) => void; onRole: (value: string) => void; onFileChange: (event: ChangeEvent<HTMLInputElement>) => void; onDrop: (event: DragEvent<HTMLLabelElement>) => void; onDragging: (value: boolean) => void; onRemove: () => void; onBegin: () => void; onBack: () => void }) {
