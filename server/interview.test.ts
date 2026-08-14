@@ -21,9 +21,10 @@ describe("seekho interview helpers", () => {
     expect(parseJson('{"question":"specific question"}', { question: "fallback" })).toEqual({ question: "specific question" });
   });
 
-  it("limits feedback scores to the intended five-point range", () => {
+  it("uses an encouraging two-to-five feedback range", () => {
     expect(normaliseScore(9)).toBe(5);
-    expect(normaliseScore(-2)).toBe(1);
+    expect(normaliseScore(-2)).toBe(2);
+    expect(normaliseScore(1)).toBe(2);
     expect(normaliseScore("3.4")).toBe(3);
     expect(normaliseScore("unknown")).toBe(3);
   });

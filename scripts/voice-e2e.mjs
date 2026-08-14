@@ -38,7 +38,7 @@ for (let index = 0; index < started.maxQuestions; index += 1) {
   if (!result.transcript || !/rag|retrieval|faithfulness/i.test(result.transcript)) {
     throw new Error(`Expected a meaningful transcription at question ${index + 1}, received: ${result.transcript}`);
   }
-  if (!result.feedback?.feedback || result.feedback.score < 1 || result.feedback.score > 5) {
+  if (!result.feedback?.feedback || result.feedback.score < 2 || result.feedback.score > 5) {
     throw new Error(`Expected usable coaching feedback at question ${index + 1}.`);
   }
   if (result.feedback.feedback === "you gave a clear starting point. make one trade-off and one outcome more explicit next time.") {

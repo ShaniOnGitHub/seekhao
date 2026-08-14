@@ -49,3 +49,8 @@
 - [x] Present a clear retry-later message when the configured transcription service reports an exhausted quota.
 - [x] Use the user-provided Groq transcription service only if the primary Whisper service reports that its quota is exhausted.
 - [x] Use the user-provided Groq chat service only if the primary interview-question, feedback, or report model reports that its quota is exhausted.
+- [x] Reduce avoidable post-recording processing latency without altering the validated gateway-safe voice-upload protocol.
+- [x] Overlap independent feedback and next-question model work after transcription while preserving question order and session state.
+- [x] Calibrate interview scoring so every submitted answer receives at least 2, while slightly correct answers are encouraged with 3 or 4 when warranted.
+- [x] Generate an overlapped next question from a snapshot that includes the current transcript, preserving the intended question number, difficulty, and answer context.
+- [x] Add regression coverage for state-consistent next-question generation during concurrent feedback processing.

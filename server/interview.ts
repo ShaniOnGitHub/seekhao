@@ -63,7 +63,7 @@ export function roleFocus(role: string) {
 export function normaliseScore(value: unknown) {
   const parsed = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(parsed)) return 3;
-  return Math.min(5, Math.max(1, Math.round(parsed)));
+  return Math.min(5, Math.max(2, Math.round(parsed)));
 }
 
 export function parseJson<T>(content: string | null | undefined, fallback: T): T {

@@ -15,6 +15,7 @@ type Report = { overallScore: number; summary: string; strengths: string[]; focu
 type AnswerResult = { transcript: string; feedback: Feedback; complete: boolean; report?: Report; nextQuestion?: string; nextFocus?: string; questionNumber?: number };
 type ChunkSubmission = { complete: boolean; receivedChunks: number; totalChunks: number; result?: AnswerResult };
 const AUDIO_CHUNK_BASE64_CHARS = 56_000;
+const VOICE_RECORDING_BITS_PER_SECOND = 24_000;
 function readBlobAsBase64(blob: Blob) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -114,7 +115,7 @@ export default function Interview() {
       if (!("MediaRecorder" in window)) throw new Error("your browser doesn’t support recording yet. open seekho in Chrome, Edge, or Firefox.");
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const preferred = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg"].find(type => MediaRecorder.isTypeSupported(type));
-      const recorder = preferred ? new MediaRecorder(stream, { mimeType: preferred }) : new MediaRecorder(stream);
+      const recorder = preferred ? new MediaRecorder(stream, { mimeType: preferred, audioBitsPerSecond: VOICE_RECORDING_BITS_PER_SECOND }) : new MediaRecorder(stream, { audioBitsPerSecond: VOICE_RECORDING_BITS_PER_SECOND });
       chunksRef.current = [];
       recorder.ondataavailable = event => { if (event.data.size) chunksRef.current.push(event.data); };
       recorder.onstop = () => { stream.getTracks().forEach(track => track.stop()); recorderRef.current = null; const mimeType = normaliseAudioMimeType(recorder.mimeType || "audio/webm"); const blob = new Blob(chunksRef.current, { type: mimeType }); if (!blob.size) { setCaption("we didn’t receive an audio sample. check your microphone permission and try again."); toast.error("we didn’t receive an audio sample. check your microphone permission and try again."); return; } void uploadAnswer(blob, mimeType); };

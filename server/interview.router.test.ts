@@ -103,6 +103,33 @@ describe("seekho interview router error and fallback behavior", () => {
     vi.unstubAllGlobals();
   });
 
+  it("raises an overly harsh model score to the encouraging two-point floor", async () => {
+    const started = await startInterview();
+    mocks.invokeLLM.mockImplementation((request: { response_format?: { json_schema?: { name?: string } } }) => {
+      const name = request.response_format?.json_schema?.name;
+      if (name === "answer_feedback") return Promise.resolve(completion('{"score":1,"feedback":"add more technical detail next time.","strength":"you started the answer","focus":"explain your approach","nextCue":"name one concrete decision"}'));
+      return Promise.resolve(completion('{"question":"how would you evaluate a rag retrieval system?","focus":"retrieval quality","followUpHint":"name your metrics"}'));
+    });
+
+    await expect(submitRecordedTestAnswer(started.sessionId)).resolves.toMatchObject({ feedback: { score: 2 } });
+  });
+
+  it("uses the current transcript and intended difficulty when next-question work overlaps feedback", async () => {
+    const started = await startInterview();
+
+    await submitRecordedTestAnswer(started.sessionId);
+    await submitRecordedTestAnswer(started.sessionId);
+
+    const questionRequests = mocks.invokeLLM.mock.calls
+      .map(([request]) => request as { response_format?: { json_schema?: { name?: string } }; messages?: Array<{ content?: string }> })
+      .filter(request => request.response_format?.json_schema?.name === "interview_question");
+    const thirdQuestionContext = questionRequests[1]?.messages?.[1]?.content;
+
+    expect(thirdQuestionContext).toContain("question number: 3 of 5");
+    expect(thirdQuestionContext).toContain("difficulty: intermediate");
+    expect(thirdQuestionContext).toContain("A: I would evaluate retrieval recall, faithfulness, latency, and cost.");
+  });
+
   it("combines ordered audio chunks before sending one complete recording for transcription", async () => {
     const started = await startInterview();
     const uploadId = "split-answer";

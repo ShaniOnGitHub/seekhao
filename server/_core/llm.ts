@@ -308,7 +308,9 @@ const fetchWithBackoff = async (
   for (let attempt = 0; attempt <= RETRY_MAX_RETRIES; attempt++) {
     try {
       const response = await fetch(url, init);
-      if (response.ok || attempt === RETRY_MAX_RETRIES) {
+      // A 412 quota response cannot recover through retrying; return it now so
+      // the interview router can immediately use its configured fallback.
+      if (response.ok || response.status === 412 || attempt === RETRY_MAX_RETRIES) {
         return response;
       }
 

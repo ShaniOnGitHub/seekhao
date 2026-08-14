@@ -7,7 +7,7 @@ import { invokeLLM } from "./_core/llm";
 import { systemRouter } from "./_core/systemRouter";
 import { transcribeAudio } from "./_core/voiceTranscription";
 import { publicProcedure, router } from "./_core/trpc";
-import { difficultyForQuestion, isRoundComplete, MAX_QUESTIONS, normaliseScore, openingQuestionForRole, parseJson, questionNumberFor, roleFocus, type Feedback, type InterviewSession } from "./interview";
+import { difficultyForQuestion, isRoundComplete, MAX_QUESTIONS, normaliseScore, openingQuestionForRole, parseJson, questionNumberFor, roleFocus, type Answer, type Feedback, type InterviewSession } from "./interview";
 import { storageGetSignedUrl, storagePut } from "./storage";
 
 const sessions = new Map<string, InterviewSession>();
@@ -67,14 +67,14 @@ function extractContent(response: Awaited<ReturnType<typeof invokeLLM>>) {
   return typeof content === "string" ? content : "";
 }
 
-async function makeQuestion(session: InterviewSession): Promise<QuestionResult> {
-  const questionNumber = questionNumberFor(session.answers.length);
+async function makeQuestion(session: InterviewSession, priorAnswers: Pick<Answer, "question" | "transcript">[] = session.answers): Promise<QuestionResult> {
+  const questionNumber = questionNumberFor(priorAnswers.length);
   const difficulty = difficultyForQuestion(questionNumber);
-  const prior = session.answers.length ? session.answers.map(answer => `Q: ${answer.question}\nA: ${answer.transcript}`).join("\n\n") : "none";
+  const prior = priorAnswers.length ? priorAnswers.map(answer => `Q: ${answer.question}\nA: ${answer.transcript}`).join("\n\n") : "none";
   const fallback = { question: `Tell me about a decision you would make in a ${session.role} role, and how you would know it was the right one.`, focus: roleFocus(session.role), followUpHint: "make your assumptions clear" };
   const response = await invokeInterviewModel({
     model: SEEKHO_TEXT_MODEL,
-    max_tokens: 1024,
+    max_tokens: 400,
     response_format: { type: "json_schema", json_schema: { name: "interview_question", strict: true, schema: { type: "object", properties: { question: { type: "string" }, focus: { type: "string" }, followUpHint: { type: "string" } }, required: ["question", "focus", "followUpHint"], additionalProperties: false } } },
     messages: [
       { role: "system", content: "You are seekho, a warm technical interview coach. Return JSON only. Ask one concise, spoken interview question. The question must be practical, specific, and answerable in under two minutes. Do not repeat prior topics. Respect the requested difficulty: easy means familiar fundamentals and clear examples; intermediate means applied reasoning; advanced means trade-offs and system decisions; challenging means nuanced constraints and judgement." },
@@ -89,11 +89,11 @@ async function evaluateAnswer(session: InterviewSession, question: string, trans
   const fallback: Feedback = { score: 3, feedback: "you gave a clear starting point. make one trade-off and one outcome more explicit next time.", strength: "you stayed on the question", focus: "name the evidence behind your choice", nextCue: "start with the context, then your decision" };
   const response = await invokeInterviewModel({
     model: SEEKHO_TEXT_MODEL,
-    max_tokens: 4096,
+    max_tokens: 500,
     response_format: { type: "json_schema", json_schema: { name: "answer_feedback", strict: true, schema: { type: "object", properties: { score: { type: "number" }, feedback: { type: "string" }, strength: { type: "string" }, focus: { type: "string" }, nextCue: { type: "string" } }, required: ["score", "feedback", "strength", "focus", "nextCue"], additionalProperties: false } } },
     messages: [
-      { role: "system", content: "You are a precise, kind interview coach. Return JSON only. Judge the candidate answer for relevance, clarity, technical accuracy, and depth. Keep every value lowercase and conversational. Never invent details the candidate did not say." },
-      { role: "user", content: `role: ${session.role}\nfocus: ${roleFocus(session.role)}\nquestion: ${question}\nanswer transcript: ${transcript}\n\nReturn exactly: {"score":1,"feedback":"one short sentence","strength":"one short phrase","focus":"one short phrase","nextCue":"one short sentence"}` },
+      { role: "system", content: "You are a precise, kind interview coach. Return JSON only. Judge the candidate answer for relevance, clarity, technical accuracy, and depth. Keep every value lowercase and conversational. Never invent details the candidate did not say. Use only whole-number scores from 2 to 5: give 2 only when an answer has almost no useful substance or is clearly off-topic; give 3 for any basic or slightly correct on-topic answer; give 4 when an answer gives a reasonably correct explanation with more than one relevant technical choice, metric, or trade-off; give 5 only for an excellent, technically sound answer." },
+      { role: "user", content: `role: ${session.role}\nfocus: ${roleFocus(session.role)}\nquestion: ${question}\nanswer transcript: ${transcript}\n\nReturn exactly: {"score":2,"feedback":"one short sentence","strength":"one short phrase","focus":"one short phrase","nextCue":"one short sentence"}` },
     ],
   });
   const result = parseJson(extractContent(response), fallback);
@@ -106,7 +106,7 @@ async function makeReport(session: InterviewSession): Promise<ReportResult> {
   const responses = session.answers.map((answer, index) => `${index + 1}. ${answer.question}\nanswer: ${answer.transcript}\ncoach: ${answer.feedback.feedback}`).join("\n\n");
   const response = await invokeInterviewModel({
     model: SEEKHO_TEXT_MODEL,
-    max_tokens: 16384,
+    max_tokens: 800,
     response_format: { type: "json_schema", json_schema: { name: "interview_report", strict: true, schema: { type: "object", properties: { overallScore: { type: "number" }, summary: { type: "string" }, strengths: { type: "array", items: { type: "string" } }, focusAreas: { type: "array", items: { type: "string" } }, nextSteps: { type: "array", items: { type: "string" } } }, required: ["overallScore", "summary", "strengths", "focusAreas", "nextSteps"], additionalProperties: false } } },
     messages: [
       { role: "system", content: "You are seekho, an encouraging interview coach. Return JSON only. Create an honest final report based only on the supplied answers. Use lower-case, direct language. Keep the summary below 45 words." },
@@ -135,11 +135,12 @@ async function processUploadedAnswer(session: InterviewSession, audio: Buffer, m
   }
   const question = session.questions[session.answers.length];
   if (!question) throw new TRPCError({ code: "CONFLICT", message: "all questions have already been completed" });
+  const nextQuestionPromise = isRoundComplete(session.answers.length + 1) ? undefined : makeQuestion(session, [...session.answers, { question, transcript }]);
   const feedback = await evaluateAnswer(session, question, transcript);
   session.answers.push({ question, transcript, feedback });
   const complete = isRoundComplete(session.answers.length);
   if (complete) return { transcript, feedback, complete: true, report: await makeReport(session) };
-  const next = await makeQuestion(session);
+  const next = await nextQuestionPromise!;
   session.questions.push(next.question);
   return { transcript, feedback, complete: false, nextQuestion: next.question, nextFocus: next.focus, questionNumber: questionNumberFor(session.answers.length), maxQuestions: MAX_QUESTIONS };
 }
