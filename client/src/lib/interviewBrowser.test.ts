@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { browserVoiceMessage, interviewRequestErrorMessage, microphoneErrorMessage, normaliseAudioMimeType } from "./interviewBrowser";
+import { browserVoiceMessage, interviewRequestErrorMessage, microphoneErrorMessage, normaliseAudioMimeType, preferredEnglishVoice } from "./interviewBrowser";
 
 describe("seekho browser interview helpers", () => {
   it("normalises recorder codec strings and falls back safely", () => {
@@ -22,5 +22,15 @@ describe("seekho browser interview helpers", () => {
   it("turns a gateway HTML parse error into a retryable request message", () => {
     expect(interviewRequestErrorMessage(new Error("Unexpected token '<', \"<html>\" is not valid JSON"), "fallback")).toContain("refresh this page");
     expect(interviewRequestErrorMessage(new Error("keep each answer recording under 16mb"), "fallback")).toBe("keep each answer recording under 16mb");
+  });
+
+  it("prefers a recognised woman-coded English voice before a generic English fallback", () => {
+    const voices = [
+      { name: "Google US English", lang: "en-US" },
+      { name: "Microsoft Aria Online", lang: "en-US" },
+      { name: "Google Deutsch", lang: "de-DE" },
+    ];
+    expect(preferredEnglishVoice(voices)?.name).toBe("Microsoft Aria Online");
+    expect(preferredEnglishVoice([{ name: "Google US English", lang: "en-US" }])?.name).toBe("Google US English");
   });
 });

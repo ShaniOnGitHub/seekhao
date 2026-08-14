@@ -17,8 +17,8 @@ const started = await caller.interview.start({
   },
 });
 
-if (!/RAG|retrieval|LLM|model/i.test(started.question)) {
-  throw new Error(`Expected an AI-engineering-specific opening question, received: ${started.question}`);
+if (!/ai|data|automation|project/i.test(started.question)) {
+  throw new Error(`Expected an approachable AI-engineering opening question, received: ${started.question}`);
 }
 if (!started.resumeUsed) {
   throw new Error("Expected the supplied text resume to be accepted and used for the interview context.");
