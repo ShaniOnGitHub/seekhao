@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isRoundComplete, normaliseScore, parseJson, questionNumberFor, roleFocus } from "./interview";
+import { difficultyForQuestion, isRoundComplete, normaliseScore, openingQuestionForRole, parseJson, questionNumberFor, roleFocus } from "./interview";
 
 describe("seekho interview helpers", () => {
   it("prioritises the requested AI-engineering concepts", () => {
@@ -34,5 +34,19 @@ describe("seekho interview helpers", () => {
     expect(isRoundComplete(4)).toBe(false);
     expect(isRoundComplete(5)).toBe(true);
     expect(questionNumberFor(99)).toBe(5);
+  });
+
+  it("ramps from accessible fundamentals to challenging judgement across a round", () => {
+    expect(difficultyForQuestion(1)).toBe("easy");
+    expect(difficultyForQuestion(2)).toBe("easy");
+    expect(difficultyForQuestion(3)).toBe("intermediate");
+    expect(difficultyForQuestion(4)).toBe("advanced");
+    expect(difficultyForQuestion(5)).toBe("challenging");
+  });
+
+  it("starts AI-engineering practice with an approachable project-context question", () => {
+    const opening = openingQuestionForRole("AI engineer");
+    expect(opening.question).toContain("project");
+    expect(opening.focus).toBe("project context and motivation");
   });
 });

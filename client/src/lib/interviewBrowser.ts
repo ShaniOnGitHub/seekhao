@@ -20,6 +20,13 @@ export function browserVoiceMessage() {
   return "spoken audio is unavailable in this browser preview, but the question remains fully usable as subtitles. after publishing, open seekho in Chrome, Edge, or Firefox in a regular browser tab for microphone and spoken prompts.";
 }
 
+const womanVoiceHints = /\b(aria|ava|hazel|jenny|libby|linda|samantha|susan|zira)\b/i;
+
+export function preferredEnglishVoice<T extends { lang: string; name: string }>(voices: T[]) {
+  const english = voices.filter(voice => voice.lang.toLowerCase().startsWith("en"));
+  return english.find(voice => womanVoiceHints.test(voice.name)) ?? english[0];
+}
+
 export function interviewRequestErrorMessage(error: unknown, fallback: string) {
   const message = error instanceof Error ? error.message : "";
   if (/unexpected token.*<|not valid json/i.test(message)) return "that upload was interrupted before it reached seekho. refresh this page once, then try again.";

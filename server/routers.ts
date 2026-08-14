@@ -7,7 +7,7 @@ import { invokeLLM } from "./_core/llm";
 import { systemRouter } from "./_core/systemRouter";
 import { transcribeAudio } from "./_core/voiceTranscription";
 import { publicProcedure, router } from "./_core/trpc";
-import { isRoundComplete, MAX_QUESTIONS, normaliseScore, parseJson, questionNumberFor, roleFocus, type Feedback, type InterviewSession } from "./interview";
+import { difficultyForQuestion, isRoundComplete, MAX_QUESTIONS, normaliseScore, openingQuestionForRole, parseJson, questionNumberFor, roleFocus, type Feedback, type InterviewSession } from "./interview";
 import { storageGetSignedUrl, storagePut } from "./storage";
 
 const sessions = new Map<string, InterviewSession>();
@@ -26,6 +26,7 @@ function extractContent(response: Awaited<ReturnType<typeof invokeLLM>>) {
 
 async function makeQuestion(session: InterviewSession): Promise<QuestionResult> {
   const questionNumber = questionNumberFor(session.answers.length);
+  const difficulty = difficultyForQuestion(questionNumber);
   const prior = session.answers.length ? session.answers.map(answer => `Q: ${answer.question}\nA: ${answer.transcript}`).join("\n\n") : "none";
   const fallback = { question: `Tell me about a decision you would make in a ${session.role} role, and how you would know it was the right one.`, focus: roleFocus(session.role), followUpHint: "make your assumptions clear" };
   const response = await invokeLLM({
@@ -33,8 +34,8 @@ async function makeQuestion(session: InterviewSession): Promise<QuestionResult> 
     max_tokens: 1024,
     response_format: { type: "json_schema", json_schema: { name: "interview_question", strict: true, schema: { type: "object", properties: { question: { type: "string" }, focus: { type: "string" }, followUpHint: { type: "string" } }, required: ["question", "focus", "followUpHint"], additionalProperties: false } } },
     messages: [
-      { role: "system", content: "You are seekho, a warm technical interview coach. Return JSON only. Ask one concise, spoken interview question. The question must be practical, specific, and answerable in under two minutes. Do not repeat prior topics." },
-      { role: "user", content: `candidate: ${session.name}\ntarget role: ${session.role}\nrole focus: ${roleFocus(session.role)}\nresume context: ${session.resumeSummary || "no resume supplied"}\nquestion number: ${questionNumber} of ${MAX_QUESTIONS}\nprior answers: ${prior}\n\nReturn exactly: {"question":"...","focus":"...","followUpHint":"..."}` },
+      { role: "system", content: "You are seekho, a warm technical interview coach. Return JSON only. Ask one concise, spoken interview question. The question must be practical, specific, and answerable in under two minutes. Do not repeat prior topics. Respect the requested difficulty: easy means familiar fundamentals and clear examples; intermediate means applied reasoning; advanced means trade-offs and system decisions; challenging means nuanced constraints and judgement." },
+      { role: "user", content: `candidate: ${session.name}\ntarget role: ${session.role}\nrole focus: ${roleFocus(session.role)}\nresume context: ${session.resumeSummary || "no resume supplied"}\nquestion number: ${questionNumber} of ${MAX_QUESTIONS}\ndifficulty: ${difficulty}\nprior answers: ${prior}\n\nReturn exactly: {"question":"...","focus":"...","followUpHint":"..."}` },
     ],
   });
   const result = parseJson(extractContent(response), fallback);
@@ -113,16 +114,11 @@ export const appRouter = router({
 
   interview: router({
     start: publicProcedure.input(z.object({ name: z.string().trim().min(1).max(80), role: z.string().trim().min(2).max(120), resume: z.object({ name: z.string().max(180), text: z.string().trim().min(1).max(16_000) }).optional() })).mutation(async ({ input }) => {
-      let resumeSummary = "";
-      if (input.resume) {
-        const resumeResponse = await invokeLLM({ model: SEEKHO_TEXT_MODEL, max_tokens: 1024, messages: [{ role: "system", content: "Summarise this resume in no more than 120 words for an interview coach. Focus on claimed experience, tools, projects, and seniority. Do not invent anything." }, { role: "user", content: `resume filename: ${input.resume.name}\nresume text:\n${input.resume.text}` }] });
-        resumeSummary = extractContent(resumeResponse).slice(0, 2_500);
-      }
-      const session: InterviewSession = { id: nanoid(), name: input.name, role: input.role, resumeSummary, questions: [], answers: [], createdAt: Date.now() };
-      const first = await makeQuestion(session);
+      const session: InterviewSession = { id: nanoid(), name: input.name, role: input.role, resumeSummary: input.resume?.text.slice(0, 2_500) ?? "", questions: [], answers: [], createdAt: Date.now() };
+      const first = openingQuestionForRole(session.role);
       session.questions.push(first.question);
       sessions.set(session.id, session);
-      return { sessionId: session.id, questionNumber: 1, maxQuestions: MAX_QUESTIONS, question: first.question, focus: first.focus, resumeUsed: Boolean(resumeSummary) };
+      return { sessionId: session.id, questionNumber: 1, maxQuestions: MAX_QUESTIONS, question: first.question, focus: first.focus, resumeUsed: Boolean(input.resume) };
     }),
   }),
 });

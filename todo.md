@@ -35,3 +35,8 @@
 - [x] Replace the in-memory multi-request recorded-audio upload state that fails for longer spoken answers, then pass live validation.
 - [x] Send each completed recording in one bounded same-origin binary request, without a temporary server-side upload ID, then pass live validation.
 - [ ] Verify a longer spoken answer completes upload, transcription, coaching, and next-question progression in a real browser.
+- [x] Reduce interview-start latency by removing nonessential work from the critical first-question path.
+- [x] Prefer an available woman-coded browser speech voice for spoken interview prompts, with graceful fallback.
+- [x] Start interviews with accessible fundamentals and progressively increase question difficulty across five turns.
+- [x] Add regression coverage for the woman-voice preference and easy-to-challenging interview progression.
+- [x] Update the live interview pipeline assertion for the new approachable AI-engineering opening question.

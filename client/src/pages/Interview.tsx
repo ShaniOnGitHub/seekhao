@@ -1,6 +1,6 @@
 import { useFirebaseAuth } from "@/_core/hooks/useFirebaseAuth";
 import { signInWithGoogle } from "@/lib/firebase";
-import { browserVoiceMessage, interviewRequestErrorMessage, microphoneErrorMessage, normaliseAudioMimeType, type AudioMimeType } from "@/lib/interviewBrowser";
+import { browserVoiceMessage, interviewRequestErrorMessage, microphoneErrorMessage, normaliseAudioMimeType, preferredEnglishVoice, type AudioMimeType } from "@/lib/interviewBrowser";
 import { extractResumeText } from "@/lib/resumeText";
 import { trpc } from "@/lib/trpc";
 import { ArrowLeft, ArrowRight, Check, FileText, Mic, Pause, RotateCcw, Sparkles, Square, UploadCloud, Volume2, X } from "lucide-react";
@@ -23,6 +23,7 @@ export default function Interview() {
   const [name, setName] = useState("");
   const [role, setRole] = useState("ai engineer");
   const [resume, setResume] = useState<File | null>(null);
+  const [resumeText, setResumeText] = useState("");
   const [preparingResume, setPreparingResume] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [practice, setPractice] = useState<InterviewStart | null>(null);
@@ -49,7 +50,7 @@ export default function Interview() {
     const speakWithAvailableVoice = () => {
       engine.cancel();
       const utterance = new SpeechSynthesisUtterance(words);
-      const voice = engine.getVoices().find(item => item.lang.toLowerCase().startsWith("en"));
+      const voice = preferredEnglishVoice(engine.getVoices());
       if (voice) utterance.voice = voice;
       utterance.rate = .94;
       utterance.pitch = 1;
@@ -73,24 +74,23 @@ export default function Interview() {
     window.speechSynthesis.resume();
     window.speechSynthesis.speak(primer);
   };
-  const selectResume = (file?: File) => {
+  const selectResume = async (file?: File) => {
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) { toast.error("keep your resume under 5mb."); return; }
     if (!(file.type === "application/pdf" || file.type === "text/plain")) { toast.error("use a pdf or txt resume for now."); return; }
-    setResume(file);
+    setResume(file); setResumeText(""); setPreparingResume(true);
+    try { setResumeText(await extractResumeText(file)); }
+    catch (error) { setResume(null); toast.error(interviewRequestErrorMessage(error, "we couldn't prepare that resume. choose it again and retry.")); }
+    finally { setPreparingResume(false); }
   };
-  const onFileChange = (event: ChangeEvent<HTMLInputElement>) => selectResume(event.target.files?.[0]);
-  const onDrop = (event: DragEvent<HTMLLabelElement>) => { event.preventDefault(); setDragging(false); selectResume(event.dataTransfer.files?.[0]); };
+  const onFileChange = (event: ChangeEvent<HTMLInputElement>) => { void selectResume(event.target.files?.[0]); };
+  const onDrop = (event: DragEvent<HTMLLabelElement>) => { event.preventDefault(); setDragging(false); void selectResume(event.dataTransfer.files?.[0]); };
   const begin = async () => {
     if (!name.trim()) { toast.error("add your name to start your practice."); return; }
     primeSpeech();
     try {
-      let resumeInput: { name: string; text: string } | undefined;
-      if (resume) {
-        setPreparingResume(true);
-        resumeInput = { name: resume.name, text: await extractResumeText(resume) };
-        setPreparingResume(false);
-      }
+      if (resume && !resumeText) { toast.error("your resume is still being prepared. it will be ready in a moment."); return; }
+      const resumeInput = resume && resumeText ? { name: resume.name, text: resumeText } : undefined;
       const started = await startInterview.mutateAsync({ name: name.trim(), role, resume: resumeInput });
       setPractice(started); setQuestion(started.question); setFocus(started.focus); setQuestionNumber(started.questionNumber); setCaption(started.question); setTranscript(""); setFeedback(null); setVoiceState("idle");
       speak(started.question);
@@ -136,7 +136,7 @@ export default function Interview() {
   if (loading) return <main className="dusk-page grid min-h-screen place-items-center text-sm text-white/60">opening your practice room…</main>;
   if (!isAuthenticated) return <main className="dusk-page grid min-h-screen place-items-center px-5"><div className="glass-panel max-w-md rounded-[2rem] p-3"><div className="gradient-card overflow-hidden rounded-[1.6rem] p-8 text-center text-white"><span className="seekho-wordmark text-4xl font-medium">seekho</span><div className="mx-auto mt-8 flex h-10 items-end justify-center gap-1.5">{[16,28,38,21,34,14,29].map((height,index)=><span className="wave-bar w-1.5 rounded-full bg-white" style={{height}} key={index} />)}</div><p className="mt-7 text-sm text-white/68">your practice room is ready</p><h1 className="mt-2 text-3xl tracking-[-.06em]">sign in to continue.</h1><button onClick={() => configured ? signInWithGoogle().catch(() => toast.error("we couldn't open google sign-in.")) : toast.error("google sign-in will be ready once firebase is connected.")} className="mt-7 rounded-full bg-white px-5 py-3 text-sm font-medium text-[#111111]">continue with google</button></div></div></main>;
   if (report) return <ReportView name={name} role={role} report={report} onAgain={reset} onHome={() => setLocation("/")} />;
-  if (!practice) return <Onboarding name={name} role={role} resume={resume} dragging={dragging} busy={preparingResume || startInterview.isPending} onName={setName} onRole={setRole} onFileChange={onFileChange} onDrop={onDrop} onDragging={setDragging} onRemove={() => setResume(null)} onBegin={begin} onBack={() => setLocation("/")} />;
+  if (!practice) return <Onboarding name={name} role={role} resume={resume} dragging={dragging} busy={preparingResume || startInterview.isPending} onName={setName} onRole={setRole} onFileChange={onFileChange} onDrop={onDrop} onDragging={setDragging} onRemove={() => { setResume(null); setResumeText(""); }} onBegin={begin} onBack={() => setLocation("/")} />;
   return <PracticeRoom name={name} role={role} question={question} focus={focus} number={questionNumber} max={practice.maxQuestions} caption={caption} transcript={transcript} feedback={feedback} recording={recording} elapsed={elapsed} busy={submittingAnswer} voiceState={voiceState} onSpeak={() => { setCaption(question); speak(question); }} onRecord={startRecording} onStop={stopRecording} onContinue={continuePractice} onExit={reset} />;
 }
 
