@@ -11,7 +11,7 @@ vi.mock("./_core/llm", () => ({ invokeLLM: mocks.invokeLLM }));
 vi.mock("./_core/voiceTranscription", () => ({ transcribeAudio: mocks.transcribeAudio }));
 vi.mock("./storage", () => ({ storageGetSignedUrl: mocks.storageGetSignedUrl, storagePut: mocks.storagePut }));
 
-import { appRouter, submitRecordedAnswer } from "./routers";
+import { appRouter } from "./routers";
 
 function createCaller() {
   return appRouter.createCaller({
@@ -40,7 +40,9 @@ async function startInterview() {
 }
 
 async function submitRecordedTestAnswer(sessionId: string) {
-  return submitRecordedAnswer(sessionId, Buffer.from("audio"), "audio/webm");
+  const uploaded = await createCaller().interview.submitAnswerChunk({ sessionId, uploadId: `test-${Math.random()}`, chunkIndex: 0, chunkCount: 1, audioBase64: Buffer.from("audio").toString("base64"), mimeType: "audio/webm" });
+  if (!uploaded.complete || !uploaded.result) throw new Error("Expected a completed answer upload.");
+  return uploaded.result;
 }
 
 describe("seekho interview router error and fallback behavior", () => {
@@ -53,7 +55,7 @@ describe("seekho interview router error and fallback behavior", () => {
   });
 
   it("rejects an expired practice session before attempting an upload", async () => {
-    await expect(submitRecordedAnswer("missing", Buffer.from("audio"), "audio/webm")).rejects.toMatchObject({ code: "NOT_FOUND", message: "this practice session has expired. start another one." });
+    await expect(submitRecordedTestAnswer("missing")).rejects.toMatchObject({ code: "NOT_FOUND", message: "this practice session has expired. start another one." });
     expect(mocks.storagePut).not.toHaveBeenCalled();
   });
 
@@ -70,6 +72,47 @@ describe("seekho interview router error and fallback behavior", () => {
     mocks.transcribeAudio.mockResolvedValue({ error: "we could not transcribe that recording" });
 
     await expect(submitRecordedTestAnswer(started.sessionId)).rejects.toMatchObject({ code: "BAD_REQUEST", message: "we could not transcribe that recording" });
+  });
+
+  it("explains when the transcription service has exhausted its quota", async () => {
+    const started = await startInterview();
+    mocks.transcribeAudio.mockResolvedValue({ error: "Transcription service request failed", details: "412 Precondition Failed: your account has hit a usage exhausted" });
+
+    await expect(submitRecordedTestAnswer(started.sessionId)).rejects.toMatchObject({ code: "BAD_REQUEST", message: "speech transcription is temporarily unavailable because its service quota has been reached. please try again later." });
+  });
+
+  it("uses Groq only when the primary transcription service reports exhausted quota", async () => {
+    const started = await startInterview();
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ text: "I would measure retrieval quality with recall, faithfulness, latency, and cost." }) });
+    vi.stubGlobal("fetch", fetchMock);
+    mocks.transcribeAudio.mockResolvedValue({ error: "Transcription service request failed", details: "412 Precondition Failed: your account has hit a usage exhausted" });
+
+    await expect(submitRecordedTestAnswer(started.sessionId)).resolves.toMatchObject({ transcript: "I would measure retrieval quality with recall, faithfulness, latency, and cost." });
+    expect(fetchMock).toHaveBeenCalledWith("https://api.groq.com/openai/v1/audio/transcriptions", expect.objectContaining({ method: "POST" }));
+    vi.unstubAllGlobals();
+  });
+
+  it("uses Groq for interview feedback only after the primary model reports exhausted quota", async () => {
+    const started = await startInterview();
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => completion('{"score":4,"feedback":"you connected evaluation metrics to the system goal.","strength":"clear metrics","focus":"add one trade-off","nextCue":"explain the constraint before your decision"}') });
+    vi.stubGlobal("fetch", fetchMock);
+    mocks.invokeLLM.mockRejectedValueOnce(new Error('LLM invoke failed: 412 Precondition Failed – {"code":9,"message":"your account has hit a usage exhausted"}'));
+
+    await expect(submitRecordedTestAnswer(started.sessionId)).resolves.toMatchObject({ feedback: { score: 4 } });
+    expect(fetchMock).toHaveBeenCalledWith("https://api.groq.com/openai/v1/chat/completions", expect.objectContaining({ method: "POST" }));
+    vi.unstubAllGlobals();
+  });
+
+  it("combines ordered audio chunks before sending one complete recording for transcription", async () => {
+    const started = await startInterview();
+    const uploadId = "split-answer";
+    const first = await createCaller().interview.submitAnswerChunk({ sessionId: started.sessionId, uploadId, chunkIndex: 0, chunkCount: 2, audioBase64: Buffer.from("au").toString("base64"), mimeType: "audio/webm" });
+    const final = await createCaller().interview.submitAnswerChunk({ sessionId: started.sessionId, uploadId, chunkIndex: 1, chunkCount: 2, audioBase64: Buffer.from("dio").toString("base64"), mimeType: "audio/webm" });
+
+    expect(first).toMatchObject({ complete: false, receivedChunks: 1, totalChunks: 2 });
+    expect(final.complete).toBe(true);
+    expect(final.result?.transcript).toContain("retrieval recall");
+    expect(mocks.storagePut).toHaveBeenCalledTimes(1);
   });
 
   it("returns a safe report when the final structured AI response is malformed", async () => {

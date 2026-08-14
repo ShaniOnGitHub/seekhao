@@ -12,12 +12,55 @@ import { storageGetSignedUrl, storagePut } from "./storage";
 
 const sessions = new Map<string, InterviewSession>();
 const MAX_ANSWER_BYTES = 16 * 1024 * 1024;
+const MAX_ANSWER_CHUNK_BASE64_CHARS = 60_000;
+const ANSWER_UPLOAD_TTL_MS = 5 * 60 * 1000;
 const SEEKHO_TEXT_MODEL = "gemini-3-flash-preview";
 
 export type AudioMimeType = "audio/webm" | "audio/mp4" | "audio/mpeg" | "audio/wav" | "audio/ogg";
+type PendingAnswerUpload = { sessionId: string; mimeType: AudioMimeType; chunkCount: number; nextChunkIndex: number; chunks: Buffer[]; totalBytes: number; createdAt: number };
+const pendingAnswerUploads = new Map<string, PendingAnswerUpload>();
 
 type QuestionResult = { question: string; focus: string; followUpHint: string };
 type ReportResult = { overallScore: number; summary: string; strengths: string[]; focusAreas: string[]; nextSteps: string[] };
+
+async function invokeInterviewModel(request: Parameters<typeof invokeLLM>[0]) {
+  try {
+    return await invokeLLM(request);
+  } catch (error) {
+    const exhausted = error instanceof Error && error.message.includes("usage exhausted");
+    const apiKey = process.env.GROQ_API_KEY;
+    if (!exhausted || !apiKey) throw error;
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: request.messages, max_tokens: request.max_tokens, response_format: { type: "json_object" } }),
+    });
+    if (!response.ok) throw error;
+    return await response.json() as Awaited<ReturnType<typeof invokeLLM>>;
+  }
+}
+
+async function transcribeWithGroqFallback(audio: Buffer, mimeType: AudioMimeType, prompt: string) {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) return null;
+  const extension = { "audio/webm": "webm", "audio/mp4": "mp4", "audio/mpeg": "mp3", "audio/wav": "wav", "audio/ogg": "ogg" }[mimeType];
+  const audioBytes = new Uint8Array(audio.byteLength);
+  audioBytes.set(audio);
+  const form = new FormData();
+  form.set("file", new Blob([audioBytes], { type: mimeType }), `seekho-answer.${extension}`);
+  form.set("model", "whisper-large-v3-turbo");
+  form.set("language", "en");
+  form.set("prompt", prompt);
+  form.set("response_format", "json");
+  try {
+    const response = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", { method: "POST", headers: { Authorization: `Bearer ${apiKey}` }, body: form });
+    if (!response.ok) return null;
+    const payload = await response.json() as { text?: unknown };
+    return typeof payload.text === "string" && payload.text.trim() ? payload.text.trim() : null;
+  } catch {
+    return null;
+  }
+}
 
 function extractContent(response: Awaited<ReturnType<typeof invokeLLM>>) {
   const content = response.choices?.[0]?.message?.content;
@@ -29,7 +72,7 @@ async function makeQuestion(session: InterviewSession): Promise<QuestionResult> 
   const difficulty = difficultyForQuestion(questionNumber);
   const prior = session.answers.length ? session.answers.map(answer => `Q: ${answer.question}\nA: ${answer.transcript}`).join("\n\n") : "none";
   const fallback = { question: `Tell me about a decision you would make in a ${session.role} role, and how you would know it was the right one.`, focus: roleFocus(session.role), followUpHint: "make your assumptions clear" };
-  const response = await invokeLLM({
+  const response = await invokeInterviewModel({
     model: SEEKHO_TEXT_MODEL,
     max_tokens: 1024,
     response_format: { type: "json_schema", json_schema: { name: "interview_question", strict: true, schema: { type: "object", properties: { question: { type: "string" }, focus: { type: "string" }, followUpHint: { type: "string" } }, required: ["question", "focus", "followUpHint"], additionalProperties: false } } },
@@ -44,7 +87,7 @@ async function makeQuestion(session: InterviewSession): Promise<QuestionResult> 
 
 async function evaluateAnswer(session: InterviewSession, question: string, transcript: string): Promise<Feedback> {
   const fallback: Feedback = { score: 3, feedback: "you gave a clear starting point. make one trade-off and one outcome more explicit next time.", strength: "you stayed on the question", focus: "name the evidence behind your choice", nextCue: "start with the context, then your decision" };
-  const response = await invokeLLM({
+  const response = await invokeInterviewModel({
     model: SEEKHO_TEXT_MODEL,
     max_tokens: 4096,
     response_format: { type: "json_schema", json_schema: { name: "answer_feedback", strict: true, schema: { type: "object", properties: { score: { type: "number" }, feedback: { type: "string" }, strength: { type: "string" }, focus: { type: "string" }, nextCue: { type: "string" } }, required: ["score", "feedback", "strength", "focus", "nextCue"], additionalProperties: false } } },
@@ -61,7 +104,7 @@ async function makeReport(session: InterviewSession): Promise<ReportResult> {
   const average = session.answers.reduce((sum, answer) => sum + answer.feedback.score, 0) / Math.max(1, session.answers.length);
   const fallback: ReportResult = { overallScore: Math.round(average * 10) / 10, summary: "you completed a full spoken practice round. your next gains will come from making your decision process more visible.", strengths: session.answers.slice(0, 2).map(answer => answer.feedback.strength), focusAreas: session.answers.slice(0, 2).map(answer => answer.feedback.focus), nextSteps: ["repeat one answer using a clear situation, decision, and outcome", "practise naming your assumptions before you explain your solution"] };
   const responses = session.answers.map((answer, index) => `${index + 1}. ${answer.question}\nanswer: ${answer.transcript}\ncoach: ${answer.feedback.feedback}`).join("\n\n");
-  const response = await invokeLLM({
+  const response = await invokeInterviewModel({
     model: SEEKHO_TEXT_MODEL,
     max_tokens: 16384,
     response_format: { type: "json_schema", json_schema: { name: "interview_report", strict: true, schema: { type: "object", properties: { overallScore: { type: "number" }, summary: { type: "string" }, strengths: { type: "array", items: { type: "string" } }, focusAreas: { type: "array", items: { type: "string" } }, nextSteps: { type: "array", items: { type: "string" } } }, required: ["overallScore", "summary", "strengths", "focusAreas", "nextSteps"], additionalProperties: false } } },
@@ -77,17 +120,28 @@ async function makeReport(session: InterviewSession): Promise<ReportResult> {
 async function processUploadedAnswer(session: InterviewSession, audio: Buffer, mimeType: AudioMimeType) {
   const uploaded = await storagePut(`seekho/answers/${session.id}/${nanoid()}`, audio, mimeType);
   const signedUrl = await storageGetSignedUrl(uploaded.key);
-  const transcription = await transcribeAudio({ audioUrl: signedUrl, language: "en", prompt: `Transcribe an interview answer for a ${session.role} role. Preserve technical terms such as RAG, LLM, LangChain, multimodal, and MCP.` });
-  if ("error" in transcription) throw new TRPCError({ code: "BAD_REQUEST", message: transcription.error, cause: transcription });
+  const prompt = `Transcribe an interview answer for a ${session.role} role. Preserve technical terms such as RAG, LLM, LangChain, multimodal, and MCP.`;
+  const transcription = await transcribeAudio({ audioUrl: signedUrl, language: "en", prompt });
+  let transcript: string;
+  if ("error" in transcription) {
+    const fallbackTranscript = transcription.details?.includes("usage exhausted") ? await transcribeWithGroqFallback(audio, mimeType, prompt) : null;
+    if (fallbackTranscript) transcript = fallbackTranscript;
+    else {
+      const message = transcription.details?.includes("usage exhausted") ? "speech transcription is temporarily unavailable because its service quota has been reached. please try again later." : transcription.error;
+      throw new TRPCError({ code: "BAD_REQUEST", message, cause: transcription });
+    }
+  } else {
+    transcript = transcription.text;
+  }
   const question = session.questions[session.answers.length];
   if (!question) throw new TRPCError({ code: "CONFLICT", message: "all questions have already been completed" });
-  const feedback = await evaluateAnswer(session, question, transcription.text);
-  session.answers.push({ question, transcript: transcription.text, feedback });
+  const feedback = await evaluateAnswer(session, question, transcript);
+  session.answers.push({ question, transcript, feedback });
   const complete = isRoundComplete(session.answers.length);
-  if (complete) return { transcript: transcription.text, feedback, complete: true, report: await makeReport(session) };
+  if (complete) return { transcript, feedback, complete: true, report: await makeReport(session) };
   const next = await makeQuestion(session);
   session.questions.push(next.question);
-  return { transcript: transcription.text, feedback, complete: false, nextQuestion: next.question, nextFocus: next.focus, questionNumber: questionNumberFor(session.answers.length), maxQuestions: MAX_QUESTIONS };
+  return { transcript, feedback, complete: false, nextQuestion: next.question, nextFocus: next.focus, questionNumber: questionNumberFor(session.answers.length), maxQuestions: MAX_QUESTIONS };
 }
 
 export async function submitRecordedAnswer(sessionId: string, audio: Buffer, mimeType: AudioMimeType) {
@@ -96,6 +150,13 @@ export async function submitRecordedAnswer(sessionId: string, audio: Buffer, mim
   if (!audio.byteLength) throw new TRPCError({ code: "BAD_REQUEST", message: "we didn't receive an audio sample. check your microphone permission and try again." });
   if (audio.byteLength > MAX_ANSWER_BYTES) throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "keep each answer recording under 16mb" });
   return processUploadedAnswer(session, audio, mimeType);
+}
+
+function discardExpiredAnswerUploads() {
+  const cutoff = Date.now() - ANSWER_UPLOAD_TTL_MS;
+  pendingAnswerUploads.forEach((upload, uploadId) => {
+    if (upload.createdAt < cutoff) pendingAnswerUploads.delete(uploadId);
+  });
 }
 
 export const appRouter = router({
@@ -119,6 +180,32 @@ export const appRouter = router({
       session.questions.push(first.question);
       sessions.set(session.id, session);
       return { sessionId: session.id, questionNumber: 1, maxQuestions: MAX_QUESTIONS, question: first.question, focus: first.focus, resumeUsed: Boolean(input.resume) };
+    }),
+    submitAnswerChunk: publicProcedure.input(z.object({ sessionId: z.string().min(1), uploadId: z.string().min(1).max(100), chunkIndex: z.number().int().min(0).max(512), chunkCount: z.number().int().min(1).max(512), mimeType: z.enum(["audio/webm", "audio/mp4", "audio/mpeg", "audio/wav", "audio/ogg"]), audioBase64: z.string().min(1).max(MAX_ANSWER_CHUNK_BASE64_CHARS) })).mutation(async ({ input }) => {
+      discardExpiredAnswerUploads();
+      if (!sessions.has(input.sessionId)) throw new TRPCError({ code: "NOT_FOUND", message: "this practice session has expired. start another one." });
+      const audio = Buffer.from(input.audioBase64, "base64");
+      if (!audio.byteLength) throw new TRPCError({ code: "BAD_REQUEST", message: "we didn't receive an audio sample. check your microphone permission and try again." });
+      let upload = pendingAnswerUploads.get(input.uploadId);
+      if (!upload) {
+        if (input.chunkIndex !== 0) throw new TRPCError({ code: "CONFLICT", message: "the recording upload expired. record your answer again and retry." });
+        upload = { sessionId: input.sessionId, mimeType: input.mimeType, chunkCount: input.chunkCount, nextChunkIndex: 0, chunks: [], totalBytes: 0, createdAt: Date.now() };
+        pendingAnswerUploads.set(input.uploadId, upload);
+      }
+      if (upload.sessionId !== input.sessionId || upload.mimeType !== input.mimeType || upload.chunkCount !== input.chunkCount || input.chunkIndex !== upload.nextChunkIndex) {
+        pendingAnswerUploads.delete(input.uploadId);
+        throw new TRPCError({ code: "CONFLICT", message: "the recording upload was interrupted. record your answer again and retry." });
+      }
+      if (upload.totalBytes + audio.byteLength > MAX_ANSWER_BYTES) {
+        pendingAnswerUploads.delete(input.uploadId);
+        throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "keep each answer recording under 16mb" });
+      }
+      upload.chunks.push(audio);
+      upload.totalBytes += audio.byteLength;
+      upload.nextChunkIndex += 1;
+      if (upload.nextChunkIndex < upload.chunkCount) return { complete: false, receivedChunks: upload.nextChunkIndex, totalChunks: upload.chunkCount };
+      pendingAnswerUploads.delete(input.uploadId);
+      return { complete: true, receivedChunks: upload.chunkCount, totalChunks: upload.chunkCount, result: await submitRecordedAnswer(input.sessionId, Buffer.concat(upload.chunks), input.mimeType) };
     }),
   }),
 });
