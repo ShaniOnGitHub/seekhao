@@ -1,6 +1,6 @@
 # Project TODO
 
-- [x] Establish the Dusk Ritual visual system: Poppins typography, warm rose-to-charcoal gradient tokens, responsive shell, and branded seekho wordmark treatment.
+- [x] Establish the Dusk Ritual visual system: Poppins typography, warm rose-to-charcoal gradient tokens, responsive shell, and branded seekhao wordmark treatment.
 - [x] Build the landing page with navigation, value proposition, visual gradient card, and Try for free entry point.
 - [x] Wire the Firebase Google sign-in access gate and its redirect-to-interview behavior.
 - [x] Build onboarding fields for candidate name and target role, including role-specific interview context.
@@ -19,7 +19,7 @@
 - [ ] Diagnose and resolve missing spoken AI question playback in the interview room with an explicit replay fallback.
 - [ ] Independently re-test question generation, browser microphone capture, transcription, feedback playback, and report completion after the fixes.
 - [x] Add the requested AGENTS.md coding guidelines to the project root.
-- [x] Push the completed seekho project to the requested GitHub repository.
+- [x] Push the completed seekhao project to the requested GitHub repository.
 - [x] Add router-level tests for transcription failures, expired sessions, and malformed final-report AI output.
 - [x] Keep the landing-page “try for free” CTA fully visible in the initial desktop viewport.
 - [x] Fix the interview-start request that returns an HTML response instead of the expected tRPC JSON payload.
@@ -28,7 +28,7 @@
 - [ ] Verify the staged recorded-answer repair in a real browser: grant microphone permission, record an answer, confirm upload, transcription, feedback, and next-question progression without an HTML parsing error.
 - [x] Verify the deployed browser is serving the latest resume-upload repair rather than a stale client bundle.
 - [x] Audit commit history, author attribution, and private-repository visibility affecting GitHub contribution counts.
-- [x] Attribute the existing legitimate seekho commits to the connected verified GitHub email and push the corrected private history.
+- [x] Attribute the existing legitimate seekhao commits to the connected verified GitHub email and push the corrected private history.
 - [x] Replace the in-memory multi-request resume upload handshake that can lose state before completion, then pass browser and automated validation.
 - [x] Validate browser-side PDF text extraction with a real PDF before closing the resume repair.
 - [x] Add unit coverage for bounded resume-text normalization used by the new client-side transport.
@@ -75,3 +75,8 @@
 - [x] Question variety: question 2-5 generation uses a randomized prompt variant so repeated sessions get different questions
 - [x] Question variety: no repeated questions within a session (previous questions/answers passed as history context)
 - [x] Question variety: tests cover the random variant selection and the non-repetition history passing
+- [x] Rename brand "seekho" to "seekhao" in all client UI copy, page titles, and component text
+- [x] Rename "seekho" references in server code, shared types, and system prompts to "seekhao"
+- [x] Update docs (HANDOFF.md, VERCEL_DEPLOYMENT.md, AGENTS.md) to use "seekhao"
+- [x] Regenerate favicon monogram for "seekhao" and wire in
+- [x] Verify UI renders with the new brand and tests pass, then commit and push

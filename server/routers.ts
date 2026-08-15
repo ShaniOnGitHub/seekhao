@@ -14,7 +14,7 @@ const sessions = new Map<string, InterviewSession>();
 const MAX_ANSWER_BYTES = 16 * 1024 * 1024;
 const MAX_ANSWER_CHUNK_BASE64_CHARS = 60_000;
 const ANSWER_UPLOAD_TTL_MS = 5 * 60 * 1000;
-const SEEKHO_TEXT_MODEL = "gemini-3-flash-preview";
+const SEEKHAO_TEXT_MODEL = "gemini-3-flash-preview";
 
 export type AudioMimeType = "audio/webm" | "audio/mp4" | "audio/mpeg" | "audio/wav" | "audio/ogg";
 type PendingAnswerUpload = { sessionId: string; mimeType: AudioMimeType; chunkCount: number; nextChunkIndex: number; chunks: Buffer[]; totalBytes: number; createdAt: number };
@@ -63,7 +63,7 @@ async function transcribeDirectly(audio: Buffer, mimeType: AudioMimeType, prompt
   const audioBytes = new Uint8Array(audio.byteLength);
   audioBytes.set(audio);
   const form = new FormData();
-  form.set("file", new Blob([audioBytes], { type: mimeType }), `seekho-answer.${extension}`);
+  form.set("file", new Blob([audioBytes], { type: mimeType }), `seekhao-answer.${extension}`);
   form.set("model", "whisper-large-v3-turbo");
   form.set("language", "en");
   form.set("prompt", prompt);
@@ -79,7 +79,7 @@ async function transcribeDirectly(audio: Buffer, mimeType: AudioMimeType, prompt
       // Fall through to the platform service when Groq is unavailable.
     }
   }
-  const uploaded = await storagePut(`seekho/answers/temp/${nanoid()}`, audio, mimeType);
+  const uploaded = await storagePut(`seekhao/answers/temp/${nanoid()}`, audio, mimeType);
   const signedUrl = await storageGetSignedUrl(uploaded.key);
   const transcription = await transcribeAudio({ audioUrl: signedUrl, language: "en", prompt });
   if ("error" in transcription) {
@@ -102,11 +102,11 @@ async function makeQuestion(session: InterviewSession, priorAnswers: Pick<Answer
   const prior = priorAnswers.length ? priorAnswers.map(answer => `Q: ${answer.question}\nA: ${answer.transcript}`).join("\n\n") : "none";
   const fallback = { question: `Tell me about a decision you would make in a ${session.role} role, and how you would know it was the right one.`, focus: roleFocus(session.role), followUpHint: "make your assumptions clear" };
   const response = await invokeInterviewModel({
-    model: SEEKHO_TEXT_MODEL,
+    model: SEEKHAO_TEXT_MODEL,
     max_tokens: 400,
     response_format: { type: "json_schema", json_schema: { name: "interview_question", strict: true, schema: { type: "object", properties: { question: { type: "string" }, focus: { type: "string" }, followUpHint: { type: "string" } }, required: ["question", "focus", "followUpHint"], additionalProperties: false } } },
     messages: [
-      { role: "system", content: "You are seekho, a warm technical interview coach. Return JSON only. Ask one concise, spoken interview question. The question must be practical, specific, and answerable in under two minutes. Never repeat the exact questions or topics already asked earlier in this session: the prior answers list every question asked so far, and you must pick a different topic and angle from all of them. Also vary your wording style and framing across questions — mix \"tell me about\", \"walk me through\", \"when have you\", \"how would you\", and \"compare or choose between\" framings so repeated sessions never sound identical. Respect the requested difficulty: easy means familiar fundamentals and clear examples; intermediate means applied reasoning; advanced means trade-offs and system decisions; challenging means nuanced constraints and judgement." },
+      { role: "system", content: "You are seekhao, a warm technical interview coach. Return JSON only. Ask one concise, spoken interview question. The question must be practical, specific, and answerable in under two minutes. Never repeat the exact questions or topics already asked earlier in this session: the prior answers list every question asked so far, and you must pick a different topic and angle from all of them. Also vary your wording style and framing across questions — mix \"tell me about\", \"walk me through\", \"when have you\", \"how would you\", and \"compare or choose between\" framings so repeated sessions never sound identical. Respect the requested difficulty: easy means familiar fundamentals and clear examples; intermediate means applied reasoning; advanced means trade-offs and system decisions; challenging means nuanced constraints and judgement." },
       { role: "user", content: `candidate: ${session.name}\ntarget role: ${session.role}\nrole focus: ${roleFocus(session.role)}\nresume context: ${session.resumeSummary || "no resume supplied"}\nquestion number: ${questionNumber} of ${MAX_QUESTIONS}\ndifficulty: ${difficulty}\nprior answers (question asked then answer given): ${prior}\n\nReturn exactly: {"question":"...","focus":"...","followUpHint":"..."}` },
     ],
   });
@@ -117,7 +117,7 @@ async function makeQuestion(session: InterviewSession, priorAnswers: Pick<Answer
 async function evaluateAnswer(session: InterviewSession, question: string, transcript: string): Promise<Feedback> {
   const fallback: Feedback = { score: 3, feedback: "you gave a clear starting point. make one trade-off and one outcome more explicit next time.", strength: "you stayed on the question", focus: "name the evidence behind your choice", nextCue: "start with the context, then your decision" };
   const response = await invokeInterviewModel({
-    model: SEEKHO_TEXT_MODEL,
+    model: SEEKHAO_TEXT_MODEL,
     max_tokens: 500,
     response_format: { type: "json_schema", json_schema: { name: "answer_feedback", strict: true, schema: { type: "object", properties: { score: { type: "number" }, feedback: { type: "string" }, strength: { type: "string" }, focus: { type: "string" }, nextCue: { type: "string" } }, required: ["score", "feedback", "strength", "focus", "nextCue"], additionalProperties: false } } },
     messages: [
@@ -134,11 +134,11 @@ async function makeReport(session: InterviewSession): Promise<ReportResult> {
   const fallback: ReportResult = { overallScore: Math.round(average * 10) / 10, summary: "you completed a full spoken practice round. your next gains will come from making your decision process more visible.", strengths: session.answers.slice(0, 2).map(answer => answer.feedback.strength), focusAreas: session.answers.slice(0, 2).map(answer => answer.feedback.focus), nextSteps: ["repeat one answer using a clear situation, decision, and outcome", "practise naming your assumptions before you explain your solution"] };
   const responses = session.answers.map((answer, index) => `${index + 1}. ${answer.question}\nanswer: ${answer.transcript}\ncoach: ${answer.feedback.feedback}`).join("\n\n");
   const response = await invokeInterviewModel({
-    model: SEEKHO_TEXT_MODEL,
+    model: SEEKHAO_TEXT_MODEL,
     max_tokens: 800,
     response_format: { type: "json_schema", json_schema: { name: "interview_report", strict: true, schema: { type: "object", properties: { overallScore: { type: "number" }, summary: { type: "string" }, strengths: { type: "array", items: { type: "string" } }, focusAreas: { type: "array", items: { type: "string" } }, nextSteps: { type: "array", items: { type: "string" } } }, required: ["overallScore", "summary", "strengths", "focusAreas", "nextSteps"], additionalProperties: false } } },
     messages: [
-      { role: "system", content: "You are seekho, an encouraging interview coach. Return JSON only. Create an honest final report based only on the supplied answers. Use lower-case, direct language. Keep the summary below 45 words." },
+      { role: "system", content: "You are seekhao, an encouraging interview coach. Return JSON only. Create an honest final report based only on the supplied answers. Use lower-case, direct language. Keep the summary below 45 words." },
       { role: "user", content: `candidate: ${session.name}\nrole: ${session.role}\nanswers:\n${responses}\n\nReturn exactly: {"overallScore":4.2,"summary":"...","strengths":["...","..."],"focusAreas":["...","..."],"nextSteps":["...","..."]}` },
     ],
   });

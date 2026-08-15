@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { chooseOpeningAngle, difficultyForQuestion, isRoundComplete, normaliseScore, openingQuestionForRole, parseJson, questionNumberFor, roleFocus } from "./interview";
 
-describe("seekho interview helpers", () => {
+describe("seekhao interview helpers", () => {
   it("prioritises the requested AI-engineering concepts", () => {
     const focus = roleFocus("AI engineer");
     expect(focus).toContain("rag");

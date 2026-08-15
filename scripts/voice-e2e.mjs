@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { appRouter } from "../server/routers.ts";
 
-const audio = (await readFile("/tmp/seekho-answer.mp3")).toString("base64");
+const audio = (await readFile("/tmp/seekhao-answer.mp3")).toString("base64");
 const chunkLength = 56_000;
 const caller = appRouter.createCaller({
   user: null,

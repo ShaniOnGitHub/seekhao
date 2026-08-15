@@ -1,10 +1,10 @@
-# seekho — Project Handoff
+# seekhao — Project Handoff
 
 *Last updated: Aug 14, 2026. This file is the single source of truth for handing the project to a new session. Read this file first; it supersedes memory of prior work.*
 
-## 1. What seekho is
+## 1. What seekhao is
 
-**seekho** (always lowercase) is a voice-first AI technical interview practice web app. A signed-in candidate goes through a five-question spoken interview loop: the app asks a role-tailored question, the candidate records a spoken answer, the answer is transcribed and evaluated by an LLM, spoken coaching feedback is played back, and the next question appears. After five questions, a final performance report is shown.
+**seekhao** (always lowercase) is a voice-first AI technical interview practice web app. A signed-in candidate goes through a five-question spoken interview loop: the app asks a role-tailored question, the candidate records a spoken answer, the answer is transcribed and evaluated by an LLM, spoken coaching feedback is played back, and the next question appears. After five questions, a final performance report is shown.
 
 **Confirmed requirements (from the owner, verbatim where relevant):**
 - Landing page first (user "absolutely loves" it — do not redesign) with a **Try for free** CTA above the fold, no scrolling needed.
@@ -24,7 +24,7 @@
 
 - **Framework:** React 19 + Tailwind 4 + Express + tRPC 11, web-db-user Manus scaffold (db/server/user features enabled, though db is intentionally unused).
 - **Language:** TypeScript (client + server), ESM. pnpm.
-- **Paths:** project at `/home/ubuntu/seekho`. Dev preview: `https://3000-ir8cjk79otwky5ph8fljl-c3cfa9a7.us3.manus.computer`. GitHub: private repo `ShaniOnGitHub/seekho`, commits attributed to `hunterone246810@gmail.com`. Push pattern: `git fetch github main && git rebase github/main && git push github HEAD:main` (rebase to avoid divergence with checkpoint sync commits).
+- **Paths:** project at `/home/ubuntu/seekhao`. Dev preview: `https://3000-ir8cjk79otwky5ph8fljl-c3cfa9a7.us3.manus.computer`. GitHub: private repo `ShaniOnGitHub/seekhao`, commits attributed to `hunterone246810@gmail.com`. Push pattern: `git fetch github main && git rebase github/main && git push github HEAD:main` (rebase to avoid divergence with checkpoint sync commits).
 - **Key files:**
   - `server/routers.ts` — tRPC router: `interview.start`, `interview.submitAnswerChunk`, plus pure functions `processUploadedAnswer`, `submitRecordedAnswer`, `invokeInterviewModel`, `transcribeWithGroqFallback`, `makeQuestion`, `evaluateAnswer`, `makeReport`.
   - `server/interview.ts` — session types, `roleFocus()`, `difficultyForQuestion()`, `openingQuestionForRole()`, `normaliseScore()` (floor 2, cap 5), `parseJson()`.
@@ -36,8 +36,8 @@
   - `server/_core/llm.ts` — `invokeLLM` (built-in LLM service) with fetchWithBackoff.
   - `server/_core/voiceTranscription.ts` — `transcribeAudio` (built-in Whisper, no retry).
   - `server/storage.ts` — S3 helpers (`storagePut`, `storageGetSignedUrl`).
-  - `scripts/voice-e2e.mjs` — 5-turn live pipeline test (runs locally with caller + mocked fixture audio at `/tmp/seekho-answer.mp3`).
-  - `scripts/raw-audio-http-check.mjs` — public preview probe (env: `SEEKHO_BASE_URL`, `SEEKHO_AUDIO_REPEATS`).
+  - `scripts/voice-e2e.mjs` — 5-turn live pipeline test (runs locally with caller + mocked fixture audio at `/tmp/seekhao-answer.mp3`).
+  - `scripts/raw-audio-http-check.mjs` — public preview probe (env: `SEEKHAO_BASE_URL`, `SEEKHAO_AUDIO_REPEATS`).
   - `docs/transcription-fallback-notes.md` — Groq fallback contract reference.
   - `docs/device-validation-status.md` — device-dependent validation boundary.
 - **Commands:** `pnpm check` (tsc), `pnpm test` (vitest — 26 tests, 6 files), `pnpm tsx scripts/voice-e2e.mjs`, `pnpm tsx scripts/raw-audio-http-check.mjs`.
@@ -45,7 +45,7 @@
 ## 3. Design system ("Dusk Ritual")
 
 - Poppins 400, lowercase, slightly negative tracking. Load via Google Fonts in `client/index.html`.
-- Gradient tokens: `#f7f7f7 → #b9a0a0 → #794747 → #4e2020 → #111111`. Glass panels, gradient cards, wordmark styled "seekho".
+- Gradient tokens: `#f7f7f7 → #b9a0a0 → #794747 → #4e2020 → #111111`. Glass panels, gradient cards, wordmark styled "seekhao".
 - Theme CSS lives in `client/src/index.css`; landing page components in `Home.tsx`.
 
 ## 4. Architecture of the voice flow (validated)

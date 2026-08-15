@@ -45,7 +45,7 @@ async function submitRecordedTestAnswer(sessionId: string) {
   return uploaded.result;
 }
 
-describe("seekho interview router error and fallback behavior", () => {
+describe("seekhao interview router error and fallback behavior", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Groq is the primary provider when GROQ_API_KEY is set. Platform-service

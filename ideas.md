@@ -1,7 +1,7 @@
-# seekho — Design Brainstorm
+# seekhao — Design Brainstorm
 
 ## User-specified constraints (ground truth, binding)
-- Brand name: **seekho** (Hindi/Urdu "learn" — "seekho" literally means "learn")
+- Brand name: **seekhao** (Hindi/Urdu "learn" — "seekhao" literally means "learn")
 - Color gradient for the UI: #f7f7f7 → #b9a0a0 → #794747 → #4e2020 → #111111
 - Font: **Poppins**, weight 400 Regular; tracking ~0 to slightly negative; **lowercase** text throughout
 - No database for now; sessions in memory; auth via Google sign-in (Firebase originally requested; we use Manus OAuth which provides Google login, fully free)
@@ -37,7 +37,7 @@
 **Layout Paradigm:** Asymmetric hero — headline left-weighted, oversized lowercase headline, gradient card wordmark element (like the "Whinehouse" reference) placed as a floating art object right of hero. The interview stage is a three-zone asymmetric layout: question/stage left-center, subtitle band full-width bottom, controls right rail.
 
 **Signature Elements:**
-1. The **gradient wordmark card** — a floating rounded card carrying the 5-stop gradient with the seekho wordmark (echoes the Whinehouse reference).
+1. The **gradient wordmark card** — a floating rounded card carrying the 5-stop gradient with the seekhao wordmark (echoes the Whinehouse reference).
 2. **Subtitle band** — film-style caption strip across the bottom of the interview stage with word-by-word highlight.
 3. **Pulse mic ring** — concentric warm-rose rings radiating while recording/listening.
 
@@ -47,11 +47,11 @@
 
 **Typography System:** Poppins 400 everywhere (user-mandated). Hierarchy via size + weight 500/600 only where needed: headline 64px tight leading, section labels 13px uppercase is BANNED (lowercase rule), use 14px lowercase letter-spaced muted labels. Subtitle band: 24px Poppins 500 warm off-white, max 2 lines.
 
-**Brand Essence:** seekho — a voice-first interview coach that helps you learn out loud, for candidates preparing for technical roles. Personality: warm, patient, encouraging.
+**Brand Essence:** seekhao — a voice-first interview coach that helps you learn out loud, for candidates preparing for technical roles. Personality: warm, patient, encouraging.
 
 **Brand Voice:** lowercase, short, spoken warmth. Examples: "try for free" (CTA); "talk it out. we'll grade the way you think." (headline sub-line). Banned: "Welcome to our website", "Get started today", uppercase labels.
 
-**Wordmark & Logo:** lowercase "seekho" in Poppins 400 with tight negative tracking; the mark is the gradient card chip (gradient card with "seekho" wordmark). Favicon: the gradient chip with an "s" glyph.
+**Wordmark & Logo:** lowercase "seekhao" in Poppins 400 with tight negative tracking; the mark is the gradient card chip (gradient card with "seekhao" wordmark). Favicon: the gradient chip with an "s" glyph.
 
 **Signature Brand Color:** warm rose #794747 — the unmistakable mid-gradient rose that no blue-purple SaaS competitor uses.
 

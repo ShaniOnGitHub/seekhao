@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { browserVoiceMessage, interviewRequestErrorMessage, microphoneErrorMessage, normaliseAudioMimeType, preferredEnglishVoice } from "./interviewBrowser";
 
-describe("seekho browser interview helpers", () => {
+describe("seekhao browser interview helpers", () => {
   it("normalises recorder codec strings and falls back safely", () => {
     expect(normaliseAudioMimeType("audio/webm;codecs=opus")).toBe("audio/webm");
     expect(normaliseAudioMimeType("audio/mp4")).toBe("audio/mp4");

@@ -1,4 +1,4 @@
-// Vercel serverless entry point for seekho's tRPC API.
+// Vercel serverless entry point for seekhao's tRPC API.
 // Vercel rewrites /api/trpc (fallback) and /api/trpc/* to this function, so a
 // single handler serves every procedure. Static assets are served by Vercel
 // directly from the build output, not through this function.

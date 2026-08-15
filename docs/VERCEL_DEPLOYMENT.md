@@ -1,6 +1,6 @@
-# Deploying seekho to Vercel
+# Deploying seekhao to Vercel
 
-This document walks through deploying seekho on Vercel with Groq as the only external service. No storage account is required: audio is transcribed directly in memory by Groq Whisper and never persisted.
+This document walks through deploying seekhao on Vercel with Groq as the only external service. No storage account is required: audio is transcribed directly in memory by Groq Whisper and never persisted.
 
 ## 1. Prerequisites
 
@@ -11,7 +11,7 @@ This document walks through deploying seekho on Vercel with Groq as the only ext
 ## 2. Import the project
 
 1. Go to [vercel.com/new](https://vercel.com/new) and sign in with GitHub.
-2. Import the repository `ShaniOnGitHub/seekho`.
+2. Import the repository `ShaniOnGitHub/seekhao`.
 3. Framework Preset: **Vite**. Vercel auto-detects `vercel.json`, so you can leave all build settings at their defaults — no need to fill in Build/Output/Install commands.
 
 ## 3. Add the environment variable
@@ -26,11 +26,11 @@ No other environment variables are needed. The Firebase config is baked into the
 
 ## 4. Authorize your new domain in Firebase
 
-After deployment, Vercel assigns a `*.vercel.app` domain (e.g., `seekho-xxx.vercel.app`). Google sign-in will fail until you authorize it:
+After deployment, Vercel assigns a `*.vercel.app` domain (e.g., `seekhao-xxx.vercel.app`). Google sign-in will fail until you authorize it:
 
 1. Open the [Firebase Console → your project](https://console.firebase.google.com/project/ai-interview-d4d6e/authentication/settings).
 2. Under **Authorized domains**, click **Add domain**.
-3. Paste your Vercel domain **without** the `https://` prefix (e.g., `seekho-xxx.vercel.app`) and save.
+3. Paste your Vercel domain **without** the `https://` prefix (e.g., `seekhao-xxx.vercel.app`) and save.
 
 If you later bind a custom domain, repeat this step for that domain too.
 

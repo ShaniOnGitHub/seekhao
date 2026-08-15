@@ -27,4 +27,4 @@ export async function signInWithGoogle() {
   await signInWithPopup(auth(), provider);
 }
 
-export async function signOutOfSeekho() { await auth().signOut(); }
+export async function signOutOf() { await auth().signOut(); }

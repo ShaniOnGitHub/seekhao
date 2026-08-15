@@ -8,7 +8,7 @@ describe("firebase browser configuration", () => {
     const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(apiKey!)}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ idToken: "seekho-configuration-probe" }),
+      body: JSON.stringify({ idToken: "seekhao-configuration-probe" }),
     });
     const body = await response.json() as { error?: { message?: string } };
     // An intentionally invalid ID token must be rejected as INVALID_ID_TOKEN.

@@ -1,12 +1,12 @@
 import { readFile } from "node:fs/promises";
 
-const baseUrl = process.env.SEEKHO_BASE_URL || "http://localhost:3000";
-const audio = await readFile("/tmp/seekho-answer.mp3");
-const repeats = Math.max(1, Number(process.env.SEEKHO_AUDIO_REPEATS || "4"));
+const baseUrl = process.env.SEEKHAO_BASE_URL || "http://localhost:3000";
+const audio = await readFile("/tmp/seekhao-answer.mp3");
+const repeats = Math.max(1, Number(process.env.SEEKHAO_AUDIO_REPEATS || "4"));
 const longAudio = Buffer.concat(Array.from({ length: repeats }, () => audio));
 const audioBase64 = longAudio.toString("base64");
 const chunkLength = 56_000;
-const skipFinalChunk = process.env.SEEKHO_SKIP_FINAL_CHUNK === "1";
+const skipFinalChunk = process.env.SEEKHAO_SKIP_FINAL_CHUNK === "1";
 
 const startedResponse = await fetch(`${baseUrl}/api/trpc/interview.start?batch=1`, {
   method: "POST",
