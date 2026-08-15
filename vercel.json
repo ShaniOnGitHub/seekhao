@@ -1,12 +1,12 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "pnpm build && rm -rf .vercel-fn && mkdir -p .vercel-fn && npx --yes esbuild api/trpc.ts --platform=node --packages=external --bundle --format=esm --outdir=.vercel-fn --target=node20 && mv .vercel-fn/trpc.js .vercel-fn/trpc.ts",
+  "buildCommand": "pnpm build",
   "outputDirectory": "dist/public",
   "rewrites": [
     { "source": "/api/trpc(.*)", "destination": "/api/trpc" }
   ],
   "functions": {
-    ".vercel-fn/trpc.ts": {
+    "api/trpc.ts": {
       "maxDuration": 60
     }
   },
