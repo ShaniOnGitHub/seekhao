@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { ENV } from "./_core/env";
 import { invokeLLM } from "./_core/llm";
 import { systemRouter } from "./_core/systemRouter";
 import { transcribeAudio } from "./_core/voiceTranscription";
@@ -28,7 +29,7 @@ type ReportResult = { overallScore: number; summary: string; strengths: string[]
 const GROQ_TEXT_MODEL = "llama-3.3-70b-versatile";
 
 async function invokeGroqChat(request: Parameters<typeof invokeLLM>[0]): Promise<Awaited<ReturnType<typeof invokeLLM>>> {
-  const apiKey = process.env.GROQ_API_KEY;
+  const apiKey = ENV.groqApiKey;
   if (!apiKey) throw new Error("GROQ_API_KEY is not configured");
   const format = request.response_format?.type === "json_schema"
     ? { type: "json_object" as const }
@@ -68,6 +69,7 @@ async function transcribeDirectly(audio: Buffer, mimeType: AudioMimeType, prompt
   form.set("language", "en");
   form.set("prompt", prompt);
   form.set("response_format", "json");
+  if (!apiKey) console.warn("[transcribeDirectly] groq disabled: GROQ_API_KEY missing in runtime");
   const quotaMessage = "we couldn't transcribe your answer right now — the speech service is briefly at capacity. wait a moment and press \"answer out loud\" again.";
   if (apiKey) {
     const attempts = 3;

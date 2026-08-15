@@ -46,12 +46,12 @@ async function submitRecordedTestAnswer(sessionId: string) {
 }
 
 describe("seekhao interview router error and fallback behavior", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     // Groq is the primary provider when GROQ_API_KEY is set. Platform-service
     // mock paths (transcription failures, malformed responses, difficulty
     // progression) stub the key off so the mocks stay authoritative.
-    vi.stubEnv("GROQ_API_KEY", "");
+    (await import("./_core/env")).ENV.groqApiKey = "";
     mocks.storagePut.mockImplementation((key: string) => Promise.resolve({ key, url: `/manus-storage/${key}` }));
     mocks.storageGetSignedUrl.mockResolvedValue("https://storage.example/test-audio");
     mocks.transcribeAudio.mockResolvedValue({ text: "I would evaluate retrieval recall, faithfulness, latency, and cost." });
@@ -90,7 +90,7 @@ describe("seekhao interview router error and fallback behavior", () => {
   });
 
   it("uses Groq only when the primary transcription service reports exhausted quota", async () => {
-    vi.stubEnv("GROQ_API_KEY", "test-key");
+    (await import("./_core/env")).ENV.groqApiKey = "test-key";
     const started = await startInterview();
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ text: "I would measure retrieval quality with recall, faithfulness, latency, and cost." }) });
     vi.stubGlobal("fetch", fetchMock);
@@ -102,7 +102,7 @@ describe("seekhao interview router error and fallback behavior", () => {
   });
 
   it("uses Groq for interview feedback only after the primary model reports exhausted quota", async () => {
-    vi.stubEnv("GROQ_API_KEY", "test-key");
+    (await import("./_core/env")).ENV.groqApiKey = "test-key";
     const started = await startInterview();
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => completion('{"score":4,"feedback":"you connected evaluation metrics to the system goal.","strength":"clear metrics","focus":"add one trade-off","nextCue":"explain the constraint before your decision"}') });
     vi.stubGlobal("fetch", fetchMock);
@@ -116,7 +116,7 @@ describe("seekhao interview router error and fallback behavior", () => {
   it("translates an ai-model failure into a retry message instead of an unhandled crash", async () => {
     // With Groq enabled and the platform mock rejecting, the router converts the
     // failure into a user-facing INTERNAL_SERVER_ERROR with retry guidance.
-    vi.stubEnv("GROQ_API_KEY", "test-key");
+    (await import("./_core/env")).ENV.groqApiKey = "test-key";
     const started = await startInterview();
     mocks.invokeLLM.mockImplementation(() => Promise.reject(new Error("LLM invoke failed: 500 – platform unavailable")));
 
@@ -124,7 +124,7 @@ describe("seekhao interview router error and fallback behavior", () => {
   });
 
   it("raises an overly harsh model score to the encouraging two-point floor", async () => {
-    vi.stubEnv("GROQ_API_KEY", "");
+    (await import("./_core/env")).ENV.groqApiKey = "";
     const started = await startInterview();
     mocks.invokeLLM.mockImplementation((request: { response_format?: { json_schema?: { name?: string } } }) => {
       const name = request.response_format?.json_schema?.name;
@@ -181,7 +181,7 @@ describe("seekhao interview router error and fallback behavior", () => {
 describe("groq transcription resilience", () => {
   it("retries transient groq 429 errors before giving up with a friendly message", async () => {
     const originalKey = process.env.GROQ_API_KEY;
-    process.env.GROQ_API_KEY = "gsk_test_retry_key";
+    (await import("./_core/env")).ENV.groqApiKey = "gsk_test_retry_key";
     const calls: number[] = [];
     const realFetch = globalThis.fetch;
     globalThis.fetch = vi.fn(async (url: any, init: any) => {
@@ -202,7 +202,7 @@ describe("groq transcription resilience", () => {
       expect(calls.length).toBe(3);
     } finally {
       globalThis.fetch = realFetch;
-      process.env.GROQ_API_KEY = originalKey;
+      (await import("./_core/env")).ENV.groqApiKey = originalKey;
     }
   }, 30_000);
 });
