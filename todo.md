@@ -66,7 +66,8 @@
 - [x] Vercel migration: env vars documented + tests updated for new providers
 - [x] Vercel migration: validate with pnpm check, pnpm test, voice-e2e pipeline
 - [x] Vercel migration: push to GitHub and deliver deployment instructions
-- [x] Vercel migration: use new Groq key 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 (update GROQ_API_KEY)
+- [x] Vercel migration: use new Groq key (update GROQ_API_KEY); key value verified never to remain in the repository
 - [x] Vercel migration: remove S3 storage — transcribe base64 audio directly to Groq Whisper in one request (no persistence)
 - [x] Vercel migration: Groq model for LLM is llama-3.3-70b-versatile; transcription is whisper-large-v3-turbo
 - [x] Voice picker: declined by user — keep the automatic woman-voice selection (no picker)
+- [x] Security: remove leaked Groq key value from git history (todo.md line 69 contained full key; rewritten via filter-repo on the checkpoint commit)
