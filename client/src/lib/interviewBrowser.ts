@@ -27,8 +27,12 @@ export function preferredEnglishVoice<T extends { lang: string; name: string }>(
   return english.find(voice => womanVoiceHints.test(voice.name)) ?? english[0];
 }
 
+// When the browser receives an HTML error page (gateway/proxy 502/503/413 etc.) instead of
+// JSON, the fetch parser surfaces it as "Unexpected token <..." or "not valid json". That means
+// the request never reached the api router — surface an accurate network-failure message so the
+// wording stays truthful no matter which mutation failed (start practice, answer, or resume).
 export function interviewRequestErrorMessage(error: unknown, fallback: string) {
   const message = error instanceof Error ? error.message : "";
-  if (/unexpected token.*<|not valid json/i.test(message)) return "that upload was interrupted before it reached seekhao. refresh this page once, then try again.";
+  if (/unexpected token.*<|not valid json/i.test(message)) return "the request was interrupted before it reached seekhao — usually a brief network or server hiccup. refresh this page once, then try again.";
   return message || fallback;
 }

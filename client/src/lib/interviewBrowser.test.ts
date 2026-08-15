@@ -21,6 +21,7 @@ describe("seekhao browser interview helpers", () => {
 
   it("turns a gateway HTML parse error into a retryable request message", () => {
     expect(interviewRequestErrorMessage(new Error("Unexpected token '<', \"<html>\" is not valid JSON"), "fallback")).toContain("refresh this page");
+    expect(interviewRequestErrorMessage(new Error("Unexpected token '<', \"<html>\" is not valid JSON"), "fallback")).not.toContain("upload");
     expect(interviewRequestErrorMessage(new Error("keep each answer recording under 16mb"), "fallback")).toBe("keep each answer recording under 16mb");
   });
 

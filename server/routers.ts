@@ -1,4 +1,4 @@
-import { COOKIE_NAME } from "@shared/const";
+import { COOKIE_NAME } from "../shared/const";
 import { TRPCError } from "@trpc/server";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -47,7 +47,7 @@ async function invokeGroqChat(request: Parameters<typeof invokeLLM>[0]): Promise
 }
 
 async function invokeInterviewModel(request: Parameters<typeof invokeLLM>[0]) {
-  if (process.env.GROQ_API_KEY) {
+  if (ENV.groqApiKey || process.env.GROQ_API_KEY) {
     try {
       return await invokeGroqChat(request);
     } catch {
@@ -59,7 +59,7 @@ async function invokeInterviewModel(request: Parameters<typeof invokeLLM>[0]) {
 
 // Direct in-memory transcription. Recordings are never persisted anywhere.
 async function transcribeDirectly(audio: Buffer, mimeType: AudioMimeType, prompt: string) {
-  const apiKey = process.env.GROQ_API_KEY;
+  const apiKey = ENV.groqApiKey || process.env.GROQ_API_KEY;
   const extension = { "audio/webm": "webm", "audio/mp4": "mp4", "audio/mpeg": "mp3", "audio/wav": "wav", "audio/ogg": "ogg" }[mimeType];
   const audioBytes = new Uint8Array(audio.byteLength);
   audioBytes.set(audio);
@@ -98,10 +98,35 @@ async function transcribeDirectly(audio: Buffer, mimeType: AudioMimeType, prompt
   const signedUrl = await storageGetSignedUrl(uploaded.key);
   const transcription = await transcribeAudio({ audioUrl: signedUrl, language: "en", prompt });
   if ("error" in transcription) {
-    const message = transcription.details?.includes("usage exhausted")
-      ? "speech transcription is temporarily unavailable because its service quota has been reached. please try again later."
-      : transcription.error;
-    throw new TRPCError({ code: "BAD_REQUEST", message, cause: transcription });
+    const quotaExhausted = transcription.details?.includes("usage exhausted");
+    // When the platform service has exhausted its quota, fall back to Groq Whisper
+    // so a real Groq key keeps the practice room working even without platform quota.
+    if (quotaExhausted && (apiKey || process.env.GROQ_API_KEY)) {
+      try {
+        const extension = { "audio/webm": "webm", "audio/mp4": "mp4", "audio/mpeg": "mp3", "audio/wav": "wav", "audio/ogg": "ogg" }[mimeType];
+        const groqAudioBytes = new Uint8Array(audio.byteLength);
+        groqAudioBytes.set(audio);
+        const groqForm = new FormData();
+        groqForm.set("file", new Blob([groqAudioBytes], { type: mimeType }), `seekhao-answer.${extension}`);
+        groqForm.set("model", "whisper-large-v3-turbo");
+        groqForm.set("language", "en");
+        groqForm.set("prompt", prompt);
+        groqForm.set("response_format", "json");
+        const groqKey = apiKey || process.env.GROQ_API_KEY;
+        const groqResponse = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", { method: "POST", headers: { Authorization: `Bearer ${groqKey}` }, body: groqForm });
+        if (groqResponse.ok) {
+          const groqPayload = await groqResponse.json() as { text?: unknown };
+          if (typeof groqPayload.text === "string" && groqPayload.text.trim()) return groqPayload.text.trim();
+        }
+      } catch {
+        // Groq fallback failed; keep the original platform error below.
+      }
+    }
+    if (quotaExhausted) {
+      const keyNote = apiKey || process.env.GROQ_API_KEY ? " configure your GROQ_API_KEY so practice never depends on the shared quota." : "";
+      throw new TRPCError({ code: "BAD_REQUEST", message: "speech transcription is temporarily unavailable because its service quota has been reached. please try again later." + (keyNote ? keyNote : ""), cause: transcription });
+    }
+    throw new TRPCError({ code: "BAD_REQUEST", message: transcription.error, cause: transcription });
   }
   return transcription.text.trim();
 }
@@ -256,7 +281,8 @@ export const appRouter = router({
       }
       if (upload.sessionId !== input.sessionId || upload.mimeType !== input.mimeType || upload.chunkCount !== input.chunkCount || input.chunkIndex !== upload.nextChunkIndex) {
         pendingAnswerUploads.delete(input.uploadId);
-        throw new TRPCError({ code: "CONFLICT", message: "the recording upload was interrupted. record your answer again and retry." });
+        if (input.sessionId && !sessions.has(input.sessionId)) throw new TRPCError({ code: "NOT_FOUND", message: "this practice session has expired. start another one." });
+        throw new TRPCError({ code: "CONFLICT", message: "this upload's chunks arrived out of order — it was interrupted. record your answer again and retry." });
       }
       if (upload.totalBytes + audio.byteLength > MAX_ANSWER_BYTES) {
         pendingAnswerUploads.delete(input.uploadId);

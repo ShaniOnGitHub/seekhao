@@ -150,7 +150,36 @@ function vitePluginManusDebugCollector(): Plugin {
   };
 }
 
-const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
+const copyApiFunctionPlugin = () => ({
+  // Vercel deploys the build output as a static site, so the tRPC serverless
+  // function must be copied into the output. Vite only copies client/public
+  // by default, which skips api/ and server/ — without these copies the API
+  // 500s with FUNCTION_INVOCATION_FAILED on every request because the
+  // function's `../server/routers` imports cannot be resolved.
+  name: "copy-api-function",
+  closeBundle: {
+    sequential: true,
+    async handler() {
+      const fs = await import("node:fs");
+      const fsp = await import("node:fs/promises");
+      const projectRoot = path.resolve(import.meta.dirname);
+      const outRoot = path.resolve(projectRoot, "dist/public");
+      const copyIfPresent = async (dir: string) => {
+        const src = path.resolve(projectRoot, dir);
+        if (fs.existsSync(src)) await fsp.cp(src, path.resolve(outRoot, dir), { recursive: true });
+      };
+      await copyIfPresent("api");
+      await copyIfPresent("server");
+      await copyIfPresent("shared");
+      await copyIfPresent("drizzle");
+      // The serverless function is executed with Vite's tsx loader, so its
+      // package.json must declare the runtime dependencies it resolves.
+      const pkg = await fsp.readFile(path.resolve(projectRoot, "package.json"), "utf-8");
+      await fsp.writeFile(path.resolve(outRoot, "package.json"), pkg);
+    },
+  },
+});
+const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector(), copyApiFunctionPlugin()];
 
 export default defineConfig({
   plugins,

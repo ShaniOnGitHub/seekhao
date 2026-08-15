@@ -136,12 +136,29 @@ export default function Interview() {
       const totalChunks = Math.ceil(audioBase64.length / AUDIO_CHUNK_BASE64_CHARS);
       const uploadId = crypto.randomUUID();
       let result: AnswerResult | undefined;
+      let lastError: unknown;
       for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
         setCaption(`sending your answer ${chunkIndex + 1} of ${totalChunks}…`);
-        const chunk = await submitAnswerChunk.mutateAsync({ sessionId: practice.sessionId, uploadId, chunkIndex, chunkCount: totalChunks, mimeType, audioBase64: audioBase64.slice(chunkIndex * AUDIO_CHUNK_BASE64_CHARS, (chunkIndex + 1) * AUDIO_CHUNK_BASE64_CHARS) }) as ChunkSubmission;
-        if (chunkIndex === totalChunks - 1) result = chunk.result;
+        let attempts = 0;
+        while (attempts < 3) {
+          try {
+            const chunk = await submitAnswerChunk.mutateAsync({ sessionId: practice.sessionId, uploadId, chunkIndex, chunkCount: totalChunks, mimeType, audioBase64: audioBase64.slice(chunkIndex * AUDIO_CHUNK_BASE64_CHARS, (chunkIndex + 1) * AUDIO_CHUNK_BASE64_CHARS) }) as ChunkSubmission;
+            if (chunkIndex === totalChunks - 1) result = chunk.result;
+            break;
+          } catch (error) {
+            attempts += 1;
+            lastError = error;
+            const message = error instanceof Error ? error.message : "";
+            const isTransient = /network|unexpected token.*<|not valid json|429|rate limit|5[0-9]{2}/i.test(message);
+            if (attempts < 3 && isTransient) {
+              await new Promise(resolve => window.setTimeout(resolve, 1500 * attempts));
+              continue;
+            }
+            throw error;
+          }
+        }
       }
-      if (!result) throw new Error("the recording upload was interrupted. record your answer again and retry.");
+      if (!result) throw new Error(lastError instanceof Error ? lastError.message : "your recording never reached seekhao — the connection dropped mid-upload. record your answer again and retry.");
       setTranscript(result.transcript); setCaption(result.transcript); setFeedback(result.feedback);
       speak(`${result.feedback.feedback}. next time: ${result.feedback.nextCue}`);
       if (result.complete && result.report) setReport(result.report);

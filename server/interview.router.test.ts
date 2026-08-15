@@ -52,6 +52,7 @@ describe("seekhao interview router error and fallback behavior", () => {
     // mock paths (transcription failures, malformed responses, difficulty
     // progression) stub the key off so the mocks stay authoritative.
     (await import("./_core/env")).ENV.groqApiKey = "";
+    vi.stubEnv("GROQ_API_KEY", "");
     mocks.storagePut.mockImplementation((key: string) => Promise.resolve({ key, url: `/manus-storage/${key}` }));
     mocks.storageGetSignedUrl.mockResolvedValue("https://storage.example/test-audio");
     mocks.transcribeAudio.mockResolvedValue({ text: "I would evaluate retrieval recall, faithfulness, latency, and cost." });
@@ -100,6 +101,29 @@ describe("seekhao interview router error and fallback behavior", () => {
     expect(fetchMock).toHaveBeenCalledWith("https://api.groq.com/openai/v1/audio/transcriptions", expect.objectContaining({ method: "POST" }));
     vi.unstubAllGlobals();
   });
+
+  it("falls back to the quota message when the Groq transcription fallback also fails", async () => {
+    (await import("./_core/env")).ENV.groqApiKey = "test-key";
+    const started = await startInterview();
+    const fetchMock = vi.fn(async (url: any, init: any) => {
+      const urlStr = String(url);
+      if (urlStr.includes("/audio/transcriptions")) return new Response(JSON.stringify({ error: { message: "rate limit" } }), { status: 429 });
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"question":"what would you monitor next?","focus":"trade-offs","followUpHint":"name one cost","summary":"resume summary"}' } }] }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    mocks.transcribeAudio.mockResolvedValue({ error: "Transcription service request failed", details: "412 Precondition Failed: your account has hit a usage exhausted" });
+
+    try {
+      await submitRecordedTestAnswer(started.sessionId);
+      throw new Error("expected the answer upload to fail");
+    } catch (error) {
+      // submitAnswerChunk converts any transcription failure (including quota exhaustion
+      // after the Groq fallback) into a retry-friendly message for the candidate.
+      expect(error).toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("speech service") });
+    }
+    expect(fetchMock).toHaveBeenCalledWith("https://api.groq.com/openai/v1/audio/transcriptions", expect.objectContaining({ method: "POST" }));
+    vi.unstubAllGlobals();
+  }, 15_000);
 
   it("uses Groq for interview feedback only after the primary model reports exhausted quota", async () => {
     (await import("./_core/env")).ENV.groqApiKey = "test-key";
@@ -180,7 +204,7 @@ describe("seekhao interview router error and fallback behavior", () => {
 
 describe("groq transcription resilience", () => {
   it("retries transient groq 429 errors before giving up with a friendly message", async () => {
-    const originalKey = process.env.GROQ_API_KEY;
+    const originalKey = (await import("./_core/env")).ENV.groqApiKey;
     (await import("./_core/env")).ENV.groqApiKey = "gsk_test_retry_key";
     const calls: number[] = [];
     const realFetch = globalThis.fetch;
@@ -191,6 +215,9 @@ describe("groq transcription resilience", () => {
         const status = calls.length <= 2 ? 429 : 200;
         const body = status === 200 ? JSON.stringify({ text: "retrieval recall matters most" }) : JSON.stringify({ error: { message: "rate limit" } });
         return new Response(body, { status });
+      }
+      if (urlStr.includes("/chat/completions")) {
+        return new Response(JSON.stringify({ choices: [{ message: { content: '{"score":3,"feedback":"a reasonable start","strength":"clear intent","focus":"deeper detail","nextCue":"add an example"}' } }] }), { status: 200 });
       }
       return realFetch(url, init);
     }) as typeof fetch;
