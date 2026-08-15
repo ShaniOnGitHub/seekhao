@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { difficultyForQuestion, isRoundComplete, normaliseScore, openingQuestionForRole, parseJson, questionNumberFor, roleFocus } from "./interview";
+import { chooseOpeningAngle, difficultyForQuestion, isRoundComplete, normaliseScore, openingQuestionForRole, parseJson, questionNumberFor, roleFocus } from "./interview";
 
 describe("seekho interview helpers", () => {
   it("prioritises the requested AI-engineering concepts", () => {
@@ -45,9 +45,12 @@ describe("seekho interview helpers", () => {
     expect(difficultyForQuestion(5)).toBe("challenging");
   });
 
-  it("starts AI-engineering practice with an approachable project-context question", () => {
-    const opening = openingQuestionForRole("AI engineer");
-    expect(opening.question).toContain("project");
-    expect(opening.focus).toBe("project context and motivation");
+  it("starts practice with a varying opener covering introduce, project, or strengths angles", () => {
+    const questions = new Set<string>();
+    for (let i = 0; i < 24; i++) questions.add(openingQuestionForRole("AI engineer", chooseOpeningAngle()).question);
+    expect(questions.size).toBeGreaterThanOrEqual(3);
+    expect(openingQuestionForRole("AI engineer", "introduce").question).toContain("introduce yourself");
+    expect(openingQuestionForRole("AI engineer", "strengths").question).toContain("biggest technical strength");
+    expect(openingQuestionForRole("AI engineer", "project").question).toContain("project");
   });
 });

@@ -71,3 +71,7 @@
 - [x] Vercel migration: Groq model for LLM is llama-3.3-70b-versatile; transcription is whisper-large-v3-turbo
 - [x] Voice picker: declined by user — keep the automatic woman-voice selection (no picker)
 - [x] Security: remove leaked Groq key value from git history (todo.md line 69 contained full key; rewritten via filter-repo on the checkpoint commit)
+- [x] Question variety: opening question is a genuine "introduce yourself / tell me about your projects" opener
+- [x] Question variety: question 2-5 generation uses a randomized prompt variant so repeated sessions get different questions
+- [x] Question variety: no repeated questions within a session (previous questions/answers passed as history context)
+- [x] Question variety: tests cover the random variant selection and the non-repetition history passing

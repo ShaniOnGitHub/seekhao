@@ -15,15 +15,25 @@ export function difficultyForQuestion(questionNumber: number) {
   return "challenging";
 }
 
-export function openingQuestionForRole(role: string) {
-  const normalized = role.toLowerCase();
-  if (normalized.includes("ai") || normalized.includes("machine learning") || normalized.includes("ml")) return { question: "to begin, tell me about an ai, data, or automation project you have worked on. what problem were you trying to solve?", focus: "project context and motivation" };
-  if (normalized.includes("software")) return { question: "to begin, tell me about a software project you enjoyed building. what did it do, and why did it matter?", focus: "project context and motivation" };
-  if (normalized.includes("data") || normalized.includes("analyst")) return { question: "to begin, tell me about an analysis you are proud of. what question were you trying to answer?", focus: "problem framing and insight" };
-  if (normalized.includes("product manager")) return { question: "to begin, tell me about a product problem you helped solve. what made it worth working on?", focus: "problem framing and user value" };
-  if (normalized.includes("design")) return { question: "to begin, tell me about a design problem you enjoyed working on. who was it for, and what were you trying to improve?", focus: "user problem and design intent" };
-  return { question: "to begin, tell me about a project or problem you enjoyed working on. what made it meaningful to you?", focus: "project context and motivation" };
+export type OpeningAngle = "introduce" | "project" | "strengths";
+
+export function chooseOpeningAngle(): OpeningAngle {
+  const roll = Math.random();
+  if (roll < 0.4) return "introduce";
+  if (roll < 0.75) return "project";
+  return "strengths";
 }
+
+export function openingQuestionForRole(role: string, angle: OpeningAngle = chooseOpeningAngle()) {
+  const normalized = role.toLowerCase();
+  const isTechnical = normalized.includes("ai") || normalized.includes("machine learning") || normalized.includes("ml") || normalized.includes("software") || normalized.includes("data") || normalized.includes("analyst");
+  const domain = isTechnical ? "tech, data, or automation work" : "work you have done";
+  if (angle === "introduce") return { question: `hi there, let's start simple: introduce yourself. what do you do, and what kind of ${domain} excites you right now?`, focus: "candidate background and motivation" };
+  if (angle === "strengths") return { question: `to begin, what do you consider your biggest technical strength as a candidate for this ${role} role, and where have you proven it?`, focus: "self-awareness and evidence" };
+  return { question: `to begin, tell me about a project you enjoyed working on in ${domain}. what problem were you trying to solve?`, focus: "project context and motivation" };
+}
+
+
 
 export type Feedback = {
   score: number;
