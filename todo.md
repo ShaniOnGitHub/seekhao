@@ -80,3 +80,4 @@
 - [x] Update docs (HANDOFF.md, VERCEL_DEPLOYMENT.md, AGENTS.md) to use "seekhao"
 - [x] Regenerate favicon monogram for "seekhao" and wire in
 - [x] Verify UI renders with the new brand and tests pass, then commit and push
+- [x] Replace role dropdown with free-text input (any role typed; AI tailors questions from role + resume)
