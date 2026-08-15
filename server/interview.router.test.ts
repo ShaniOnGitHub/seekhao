@@ -177,3 +177,32 @@ describe("seekhao interview router error and fallback behavior", () => {
     expect(finalResult?.report?.nextSteps).toHaveLength(2);
   });
 });
+
+describe("groq transcription resilience", () => {
+  it("retries transient groq 429 errors before giving up with a friendly message", async () => {
+    const originalKey = process.env.GROQ_API_KEY;
+    process.env.GROQ_API_KEY = "gsk_test_retry_key";
+    const calls: number[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url: any, init: any) => {
+      const urlStr = String(url);
+      if (urlStr.includes("/audio/transcriptions")) {
+        calls.push(1);
+        const status = calls.length <= 2 ? 429 : 200;
+        const body = status === 200 ? JSON.stringify({ text: "retrieval recall matters most" }) : JSON.stringify({ error: { message: "rate limit" } });
+        return new Response(body, { status });
+      }
+      return realFetch(url, init);
+    }) as typeof fetch;
+    try {
+      const started = await startInterview();
+      const result = await submitRecordedTestAnswer(started.sessionId);
+      expect(result.complete).toBe(false);
+      expect(result.transcript).toContain("retrieval recall");
+      expect(calls.length).toBe(3);
+    } finally {
+      globalThis.fetch = realFetch;
+      process.env.GROQ_API_KEY = originalKey;
+    }
+  }, 30_000);
+});

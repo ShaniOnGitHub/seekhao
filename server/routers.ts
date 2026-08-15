@@ -68,15 +68,28 @@ async function transcribeDirectly(audio: Buffer, mimeType: AudioMimeType, prompt
   form.set("language", "en");
   form.set("prompt", prompt);
   form.set("response_format", "json");
+  const quotaMessage = "we couldn't transcribe your answer right now — the speech service is briefly at capacity. wait a moment and press \"answer out loud\" again.";
   if (apiKey) {
-    try {
-      const response = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", { method: "POST", headers: { Authorization: `Bearer ${apiKey}` }, body: form });
-      if (response.ok) {
-        const payload = await response.json() as { text?: unknown };
-        if (typeof payload.text === "string" && payload.text.trim()) return payload.text.trim();
+    const attempts = 3;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        const response = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", { method: "POST", headers: { Authorization: `Bearer ${apiKey}` }, body: form });
+        if (response.ok) {
+          const payload = await response.json() as { text?: unknown };
+          if (typeof payload.text === "string" && payload.text.trim()) return payload.text.trim();
+        } else if (response.status === 429 || response.status >= 500) {
+          // Rate limit or transient Groq error — retry after a short backoff.
+          await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+          if (attempt === attempts) throw new TRPCError({ code: "BAD_REQUEST", message: quotaMessage });
+        } else {
+          // Non-retryable Groq response (e.g. 400 invalid audio) — fall through to the platform service.
+          break;
+        }
+      } catch (error) {
+        if (error instanceof TRPCError && error.message === quotaMessage) throw error;
+        // Fall through to the platform service when Groq is unavailable.
+        break;
       }
-    } catch {
-      // Fall through to the platform service when Groq is unavailable.
     }
   }
   const uploaded = await storagePut(`seekhao/answers/temp/${nanoid()}`, audio, mimeType);
