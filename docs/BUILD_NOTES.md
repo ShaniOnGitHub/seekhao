@@ -36,6 +36,20 @@ NOTE: GROQ_API_KEY env exists in this sandbox build but may not be in Manus prod
 if production shows quota errors, ask user to re-add GROQ_API_KEY via secrets card OR use
 webdev_request_secrets.
 
+## Production transcription fix (2026-08-15, in progress)
+- Checkpoint e6e7aec0: retry loop added; key injected via webdev_request_secrets, but
+  production STILL returned platform-quota error because process.env.GROQ_API_KEY was not
+  propagated to the deployed runtime (secrets only hit the sandbox; the template injects
+  envs declared in server/_core/env.ts).
+- Checkpoint 0cadbbdd (current): added `groqApiKey` to server/_core/env.ts; routers.ts
+  reads ENV.groqApiKey in transcribeDirectly + invokesGroqChat region; warn logged when
+  missing; tests stub via ENV module (beforeEach async). 28 tests passing.
+- After deploy of 0cadbbdd: retest production endpoint (interview.start +
+  submitAnswerChunk with fake audio via /home/ubuntu test scripts) to confirm Groq path is taken.
+- If still failing in prod: check manus-webdev-logs for "[transcribeDirectly] groq disabled".
+- User-facing status: Vercel deploy seekhao.vercel.app works with user's own env vars;
+  Manus production (seekho-ai-frtcy7di.manus.space) is now also keyed for Groq.
+
 ## Commit convention
 - Always `git commit --amend --author="ShaniOnGitHub <hunterone246810@gmail.com>"` then
   force-push to `github` remote (ShaniOnGitHub/seekho) for contribution graph.
