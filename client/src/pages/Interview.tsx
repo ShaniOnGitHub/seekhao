@@ -1,7 +1,7 @@
 import { useFirebaseAuth } from "@/_core/hooks/useFirebaseAuth";
 import { signInWithGoogle } from "@/lib/firebase";
 import { browserVoiceMessage, interviewRequestErrorMessage, microphoneErrorMessage, normaliseAudioMimeType, preferredEnglishVoice, type AudioMimeType } from "@/lib/interviewBrowser";
-import { extractResumeText } from "@/lib/resumeText";
+import { detectResumeType, extractResumeText } from "@/lib/resumeText";
 import { trpc } from "@/lib/trpc";
 import { ArrowLeft, ArrowRight, Check, FileText, Mic, Pause, RotateCcw, Sparkles, Square, UploadCloud, Volume2, X } from "lucide-react";
 import { type ChangeEvent, type DragEvent, useEffect, useRef, useState } from "react";
@@ -89,7 +89,7 @@ export default function Interview() {
   const selectResume = async (file?: File) => {
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) { toast.error("keep your resume under 5mb."); return; }
-    if (!(file.type === "application/pdf" || file.type === "text/plain")) { toast.error("use a pdf or txt resume for now."); return; }
+    if (!detectResumeType(file)) { toast.error("use a pdf or txt resume for now."); return; }
     setResume(file); setResumeText(""); setPreparingResume(true);
     try { setResumeText(await extractResumeText(file)); }
     catch (error) { setResume(null); toast.error(interviewRequestErrorMessage(error, "we couldn't prepare that resume. choose it again and retry.")); }
