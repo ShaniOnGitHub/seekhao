@@ -117,3 +117,14 @@ webdev_request_secrets.
   config in earlier session: apiKey AIzaSyBHQHZED2YOc61ExdkfL7NZz6dl4OnFmP4,
   authDomain ai-interview-d4d6e.firebaseapp.com, projectId ai-interview-d4d6e,
   appId 1:217420754231:web:7a0b0768cc7675bd64beb2).
+
+## 2026-08-16 — Vercel API fix
+- Root cause of persistent FUNCTION_INVOCATION_FAILED: `@shared/*` path aliases
+  (resolved only by Vite, not by Vercel's serverless tsx loader) in
+  server/routers.ts and server/_core/{oauth,sdk,trpc}.ts.
+- Fix: relative imports; build plugin copies api/, server/, shared/, drizzle/
+  + package.json into dist/public.
+- Verified with a Vercel-condition simulation (NODE_ENV=production, same env
+  shape) — interview.start returns 200 with a generated question.
+- Note: Vercel ignores git force-pushes, so the alias fix must be pushed as a
+  fresh commit to trigger a rebuild.
