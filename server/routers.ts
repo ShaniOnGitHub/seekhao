@@ -8,7 +8,8 @@ import { invokeLLM } from "./_core/llm";
 import { systemRouter } from "./_core/systemRouter";
 import { transcribeAudio } from "./_core/voiceTranscription";
 import { publicProcedure, router } from "./_core/trpc";
-import { difficultyForQuestion, isRoundComplete, MAX_QUESTIONS, normaliseScore, openingQuestionForRole, parseJson, questionNumberFor, roleFocus, type Answer, type Feedback, type InterviewSession } from "./interview";
+import { chooseOpeningAngle, difficultyForQuestion, isRoundComplete, MAX_QUESTIONS, normaliseScore, openingQuestionForRole, parseJson, questionNumberFor, roleFocus, type Answer, type Feedback, type InterviewSession } from "./interview";
+import { drawQuestionSeed, fallbackSeedForRole, formatSeedAsPromptBase } from "./questionBank";
 import { storageGetSignedUrl, storagePut } from "./storage";
 import { localStoragePut } from "./_core/localStorage";
 
@@ -226,18 +227,24 @@ async function makeQuestion(session: InterviewSession, priorAnswers: Pick<Answer
   const questionNumber = questionNumberFor(priorAnswers.length);
   const difficulty = difficultyForQuestion(questionNumber);
   const prior = priorAnswers.length ? priorAnswers.map(answer => `Q: ${answer.question}\nA: ${answer.transcript}`).join("\n\n") : "none";
-  const fallback = { question: `Tell me about a decision you would make in a ${session.role} role, and how you would know it was the right one.`, focus: roleFocus(session.role), followUpHint: "make your assumptions clear" };
+  // Topic is drawn from a curated bank, sampled without replacement both within
+  // this session and across previous sessions, so 10-20 practice rounds never
+  // feel repetitive. The model composes the final wording around the seed.
+  const seed = drawQuestionSeed(session.role, session.questions);
+  const fallbackSeed = fallbackSeedForRole(session.role);
+  const fallback = { question: `${seed.framing} a real example from your experience with ${seed.topic} in a ${session.role} role, and what outcome it led to.`, focus: roleFocus(session.role), followUpHint: seed.why };
   const response = await invokeInterviewModel({
     model: SEEKHAO_TEXT_MODEL,
     max_tokens: 400,
     response_format: { type: "json_schema", json_schema: { name: "interview_question", strict: true, schema: { type: "object", properties: { question: { type: "string" }, focus: { type: "string" }, followUpHint: { type: "string" } }, required: ["question", "focus", "followUpHint"], additionalProperties: false } } },
     messages: [
-      { role: "system", content: "You are seekhao, a warm technical interview coach. Return JSON only. Ask one concise, spoken interview question. The question must be practical, specific, and answerable in under two minutes. Never repeat the exact questions or topics already asked earlier in this session: the prior answers list every question asked so far, and you must pick a different topic and angle from all of them. Also vary your wording style and framing across questions — mix \"tell me about\", \"walk me through\", \"when have you\", \"how would you\", and \"compare or choose between\" framings so repeated sessions never sound identical. Respect the requested difficulty: easy means familiar fundamentals and clear examples; intermediate means applied reasoning; advanced means trade-offs and system decisions; challenging means nuanced constraints and judgement." },
-      { role: "user", content: `candidate: ${session.name}\ntarget role: ${session.role}\nrole focus: ${roleFocus(session.role)}\nresume context: ${session.resumeSummary || "no resume supplied"}\nquestion number: ${questionNumber} of ${MAX_QUESTIONS}\ndifficulty: ${difficulty}\nprior answers (question asked then answer given): ${prior}\n\nReturn exactly: {"question":"...","focus":"...","followUpHint":"..."}` },
+      { role: "system", content: "You are seekhao, a warm technical interview coach. Return JSON only. Ask one concise, spoken interview question. The question must be practical, specific, grounded in the candidate's real experience, and answerable in under two minutes. Never repeat the exact questions or topics already asked earlier in this session: the prior answers list every question asked so far, and you must pick a different topic and angle from all of them. Also vary your wording style and framing across questions — mix \"tell me about\", \"walk me through\", \"when have you\", \"how would you\", and \"compare or choose between\" framings so repeated sessions never sound identical. Respect the requested difficulty: easy means familiar fundamentals and clear examples; intermediate means applied reasoning; advanced means trade-offs and system decisions; challenging means nuanced constraints and judgement. The assigned topic and framing style below are the anchor for this question — build the question around them and keep it sensible for the stated role; do not invent topics unrelated to the role focus." },
+      { role: "user", content: `candidate: ${session.name}\ntarget role: ${session.role}\nrole focus: ${roleFocus(session.role)}\nresume context: ${session.resumeSummary || "no resume supplied"}\nquestion number: ${questionNumber} of ${MAX_QUESTIONS}\ndifficulty: ${difficulty}\nassigned question seed:\n${formatSeedAsPromptBase(seed, session.role)}\nprior answers (question asked then answer given): ${prior}\n\nReturn exactly: {"question":"...","focus":"...","followUpHint":"..."}` },
     ],
   });
   const result = parseJson(extractContent(response), fallback);
-  return { question: result.question || fallback.question, focus: result.focus || fallback.focus, followUpHint: result.followUpHint || fallback.followUpHint };
+  const finalQuestion = result.question || fallback.question;
+  return { question: finalQuestion, focus: result.focus || fallback.focus, followUpHint: result.followUpHint || fallback.followUpHint };
 }
 
 async function evaluateAnswer(session: InterviewSession, question: string, transcript: string): Promise<Feedback> {
@@ -351,7 +358,10 @@ export const appRouter = router({
   interview: router({
     start: publicProcedure.input(z.object({ name: z.string().trim().min(1).max(80), role: z.string().trim().min(2).max(120), resume: z.object({ name: z.string().max(180), text: z.string().trim().min(1).max(16_000) }).optional() })).mutation(async ({ input }) => {
       const session: InterviewSession = { id: nanoid(), name: input.name, role: input.role, resumeSummary: input.resume?.text.slice(0, 2_500) ?? "", questions: [], answers: [], createdAt: Date.now() };
-      const first = openingQuestionForRole(session.role);
+      // The opening question is drawn from the same randomized bank so the
+      // first thing a user hears varies across practice rounds.
+      const openingSeed = drawQuestionSeed(session.role, session.questions);
+      const first = openingQuestionForRole(session.role, chooseOpeningAngle(), openingSeed.topic);
       session.questions.push(first.question);
       sessions.set(session.id, session);
       return { sessionId: session.id, questionNumber: 1, maxQuestions: MAX_QUESTIONS, question: first.question, focus: first.focus, resumeUsed: Boolean(input.resume) };

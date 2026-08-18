@@ -24,10 +24,13 @@ export function chooseOpeningAngle(): OpeningAngle {
   return "strengths";
 }
 
-export function openingQuestionForRole(role: string, angle: OpeningAngle = chooseOpeningAngle()) {
+export function openingQuestionForRole(role: string, angle: OpeningAngle = chooseOpeningAngle(), topic?: string) {
   const normalized = role.toLowerCase();
   const isTechnical = normalized.includes("ai") || normalized.includes("machine learning") || normalized.includes("ml") || normalized.includes("software") || normalized.includes("data") || normalized.includes("analyst");
   const domain = isTechnical ? "tech, data, or automation work" : "work you have done";
+  if (topic) {
+    return { question: `let's start with something concrete: ${topic} — how has that shown up in your work, and what did you take away from it?`, focus: "candidate background applied to a real topic" };
+  }
   if (angle === "introduce") return { question: `hi there, let's start simple: introduce yourself. what do you do, and what kind of ${domain} excites you right now?`, focus: "candidate background and motivation" };
   if (angle === "strengths") return { question: `to begin, what do you consider your biggest technical strength as a candidate for this ${role} role, and where have you proven it?`, focus: "self-awareness and evidence" };
   return { question: `to begin, tell me about a project you enjoyed working on in ${domain}. what problem were you trying to solve?`, focus: "project context and motivation" };
