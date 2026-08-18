@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   invokeLLM: vi.fn(),
@@ -10,6 +10,30 @@ const mocks = vi.hoisted(() => ({
 vi.mock("./_core/llm", () => ({ invokeLLM: mocks.invokeLLM }));
 vi.mock("./_core/voiceTranscription", () => ({ transcribeAudio: mocks.transcribeAudio }));
 vi.mock("./storage", () => ({ storageGetSignedUrl: mocks.storageGetSignedUrl, storagePut: mocks.storagePut }));
+vi.mock("./_core/localStorage", () => ({
+  localStoragePut: vi.fn().mockImplementation((key: string) => Promise.resolve({ key, localUrl: `/storage-local/${key}` })),
+  storageEnabled: vi.fn().mockReturnValue(true),
+}));
+let localStorageMock: Awaited<typeof import("./_core/localStorage")>;
+beforeAll(async () => {
+  localStorageMock = vi.mocked(await import("./_core/localStorage"));
+});
+
+import { appRouter } from "./routers";
+
+async function setForgeConfigured(enabled: boolean) {
+  const envModule = (await import("./_core/env")) as unknown as { ENV: Record<string, string> };
+  envModule.ENV.forgeApiUrl = enabled ? "http://local-forge" : "";
+  envModule.ENV.forgeApiKey = enabled ? "test-forge-key" : "";
+}
+
+async function installMocks({ forgeEnabled = true }: { forgeEnabled?: boolean } = {}) {
+  await setForgeConfigured(forgeEnabled);
+  mocks.storagePut.mockImplementation((key: string) => Promise.resolve({ key, url: `/manus-storage/${key}` }));
+  mocks.storageGetSignedUrl.mockResolvedValue("https://storage.example/test-audio");
+  mocks.transcribeAudio.mockResolvedValue({ text: "I would evaluate retrieval recall, faithfulness, latency, and cost." });
+  installSuccessfulAiMocks();
+}
 
 import { appRouter } from "./routers";
 
@@ -51,16 +75,21 @@ describe("seekhao interview router error and fallback behavior", () => {
     // Groq is the primary provider when GROQ_API_KEY is set. Platform-service
     // mock paths (transcription failures, malformed responses, difficulty
     // progression) stub the key off so the mocks stay authoritative.
-    (await import("./_core/env")).ENV.groqApiKey = "";
+    const envModule = (await import("./_core/env")) as unknown as { ENV: Record<string, string> };
+    envModule.groqApiKey = "";
     vi.stubEnv("GROQ_API_KEY", "");
-    mocks.storagePut.mockImplementation((key: string) => Promise.resolve({ key, url: `/manus-storage/${key}` }));
-    mocks.storageGetSignedUrl.mockResolvedValue("https://storage.example/test-audio");
-    mocks.transcribeAudio.mockResolvedValue({ text: "I would evaluate retrieval recall, faithfulness, latency, and cost." });
-    installSuccessfulAiMocks();
+    await installMocks();
   });
 
   afterEach(() => {
     vi.unstubAllEnvs();
+  });
+
+  it("gives a truthful error when no speech service is configured on a self-hosted deploy", async () => {
+    await installMocks({ forgeEnabled: false });
+    const started = await startInterview();
+    await expect(submitRecordedTestAnswer(started.sessionId)).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("GROQ_API_KEY") });
+    expect(localStorageMock.localStoragePut).toHaveBeenCalled();
   });
 
   it("rejects an expired practice session before attempting an upload", async () => {
@@ -77,6 +106,7 @@ describe("seekhao interview router error and fallback behavior", () => {
   });
 
   it("propagates a transcription-service failure as a useful submission error", async () => {
+    await setForgeConfigured(true);
     const started = await startInterview();
     mocks.transcribeAudio.mockResolvedValue({ error: "we could not transcribe that recording" });
 
@@ -84,6 +114,7 @@ describe("seekhao interview router error and fallback behavior", () => {
   });
 
   it("explains when the transcription service has exhausted its quota", async () => {
+    await setForgeConfigured(true);
     const started = await startInterview();
     mocks.transcribeAudio.mockResolvedValue({ error: "Transcription service request failed", details: "412 Precondition Failed: your account has hit a usage exhausted" });
 
@@ -91,6 +122,7 @@ describe("seekhao interview router error and fallback behavior", () => {
   });
 
   it("uses Groq only when the primary transcription service reports exhausted quota", async () => {
+    await setForgeConfigured(true);
     (await import("./_core/env")).ENV.groqApiKey = "test-key";
     const started = await startInterview();
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ text: "I would measure retrieval quality with recall, faithfulness, latency, and cost." }) });
@@ -138,17 +170,34 @@ describe("seekhao interview router error and fallback behavior", () => {
   });
 
   it("translates an ai-model failure into a retry message instead of an unhandled crash", async () => {
-    // With Groq enabled and the platform mock rejecting, the router converts the
-    // failure into a user-facing INTERNAL_SERVER_ERROR with retry guidance.
+    // Groq primary, platform fallback unconfigured on self-hosted deployments:
+    // the router converts the Groq failure into a user-facing INTERNAL_SERVER_ERROR
+    // with retry guidance instead of leaking the raw "API key not configured" error.
+    vi.unstubAllGlobals();
     (await import("./_core/env")).ENV.groqApiKey = "test-key";
     const started = await startInterview();
-    mocks.invokeLLM.mockImplementation(() => Promise.reject(new Error("LLM invoke failed: 500 – platform unavailable")));
+    // Route the stub by URL so storage-presign calls don't hang on the real
+    // forge endpoint, Groq audio transcription succeeds, and the chat call
+    // fails like a real service outage — isolating the failure to the LLM step.
+    const fetchMock = vi.fn(async (url: any, init: any) => {
+      const urlStr = String(url);
+      if (urlStr.includes("/v1/storage/presign")) return new Response(JSON.stringify({ url: "https://storage.example/test-audio" }), { status: 200 });
+      if (urlStr.includes("/audio/transcriptions")) return new Response(JSON.stringify({ text: "I would evaluate retrieval recall, faithfulness, latency, and cost." }), { status: 200 });
+      return new Response(JSON.stringify({ error: { message: "service unavailable" } }), { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
     await expect(submitRecordedTestAnswer(started.sessionId)).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR", message: "our ai hit a temporary problem. please retry this answer." });
-  });
+    vi.unstubAllGlobals();
+  }, 10_000);
 
   it("raises an overly harsh model score to the encouraging two-point floor", async () => {
+    vi.unstubAllGlobals();
     (await import("./_core/env")).ENV.groqApiKey = "";
+    vi.stubEnv("GROQ_API_KEY", "");
+    // Neutral fetch stub so no leftover stub from a previous test can interfere
+    // with mocked service calls in this scenario.
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
     const started = await startInterview();
     mocks.invokeLLM.mockImplementation((request: { response_format?: { json_schema?: { name?: string } } }) => {
       const name = request.response_format?.json_schema?.name;

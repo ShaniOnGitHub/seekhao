@@ -10,6 +10,7 @@ import { transcribeAudio } from "./_core/voiceTranscription";
 import { publicProcedure, router } from "./_core/trpc";
 import { difficultyForQuestion, isRoundComplete, MAX_QUESTIONS, normaliseScore, openingQuestionForRole, parseJson, questionNumberFor, roleFocus, type Answer, type Feedback, type InterviewSession } from "./interview";
 import { storageGetSignedUrl, storagePut } from "./storage";
+import { localStoragePut } from "./_core/localStorage";
 
 const sessions = new Map<string, InterviewSession>();
 const MAX_ANSWER_BYTES = 16 * 1024 * 1024;
@@ -47,10 +48,18 @@ async function invokeGroqChat(request: Parameters<typeof invokeLLM>[0]): Promise
 }
 
 async function invokeInterviewModel(request: Parameters<typeof invokeLLM>[0]) {
+  const platformConfigured = Boolean(ENV.forgeApiUrl && ENV.forgeApiKey);
   if (ENV.groqApiKey || process.env.GROQ_API_KEY) {
     try {
       return await invokeGroqChat(request);
-    } catch {
+    } catch (error) {
+      // On self-hosted deployments (e.g. Render) the platform LLM is not
+      // available, so surface the Groq failure instead of chaining into a
+      // guaranteed "API key not configured" error.
+      if (!platformConfigured) {
+        const message = error instanceof Error ? error.message : "unknown error";
+        throw new Error(`question generation failed (${message.replace(/^Groq chat request failed: /, "")})`);
+      }
       return await invokeLLM(request);
     }
   }
@@ -94,10 +103,20 @@ async function transcribeDirectly(audio: Buffer, mimeType: AudioMimeType, prompt
       }
     }
   }
-  const uploaded = await storagePut(`seekhao/answers/temp/${nanoid()}`, audio, mimeType);
-  const signedUrl = await storageGetSignedUrl(uploaded.key);
-  const transcription = await transcribeAudio({ audioUrl: signedUrl, language: "en", prompt });
-  if ("error" in transcription) {
+  // On self-hosted deployments (e.g. Render) the Manus Forge keys are not
+  // present, so the platform storage and transcription services are skipped:
+  // audio is stored on the instance's local filesystem (served via
+  // /storage-local/*) and Groq Whisper (set GROQ_API_KEY) transcribes it.
+  const forgeConfigured = Boolean(ENV.forgeApiUrl && ENV.forgeApiKey);
+  let transcription: Awaited<ReturnType<typeof transcribeAudio>> | undefined;
+  if (forgeConfigured) {
+    const uploaded = await storagePut(`seekhao/answers/temp/${nanoid()}`, audio, mimeType);
+    const signedUrl = await storageGetSignedUrl(uploaded.key);
+    transcription = await transcribeAudio({ audioUrl: signedUrl, language: "en", prompt });
+  } else {
+    await localStoragePut(`seekhao/answers/temp/${nanoid()}`, audio);
+  }
+  if (transcription && "error" in transcription) {
     const quotaExhausted = transcription.details?.includes("usage exhausted");
     // When the platform service has exhausted its quota, fall back to Groq Whisper
     // so a real Groq key keeps the practice room working even without platform quota.
@@ -127,6 +146,9 @@ async function transcribeDirectly(audio: Buffer, mimeType: AudioMimeType, prompt
       throw new TRPCError({ code: "BAD_REQUEST", message: "speech transcription is temporarily unavailable because its service quota has been reached. please try again later." + (keyNote ? keyNote : ""), cause: transcription });
     }
     throw new TRPCError({ code: "BAD_REQUEST", message: transcription.error, cause: transcription });
+  }
+  if (!transcription) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "we couldn't transcribe your answer — the speech service is not configured. make sure GROQ_API_KEY is set." });
   }
   return transcription.text.trim();
 }

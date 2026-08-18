@@ -1,7 +1,34 @@
 import type { Express } from "express";
 import { ENV } from "./env";
+import {
+  localStorageGetBuffer,
+  localStorageCleanup,
+  storageEnabled,
+} from "./localStorage";
 
 export function registerStorageProxy(app: Express) {
+  // Self-hosted deployments (e.g. Render) store audio on the instance's
+  // local filesystem and serve it back through this route.
+  app.get("/storage-local/:key", async (req, res) => {
+    const key = (req.params as Record<string, string>).key;
+    if (!key || !storageEnabled()) {
+      res.status(400).send("Missing or unavailable storage key");
+      return;
+    }
+    try {
+      const buffer = await localStorageGetBuffer(key);
+      res.set("Cache-Control", "no-store");
+      res.contentType("audio/*");
+      res.send(buffer);
+    } catch (error) {
+      console.error("[StorageProxy] local read failed:", error);
+      res.status(404).send("Stored audio not found");
+    }
+  });
+
+  // Sweep stale local audio files once a day.
+  setInterval(() => { void localStorageCleanup(); }, 24 * 60 * 60 * 1000);
+
   app.get("/manus-storage/*", async (req, res) => {
     const key = (req.params as Record<string, string>)[0];
     if (!key) {
