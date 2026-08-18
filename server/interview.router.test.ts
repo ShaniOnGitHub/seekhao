@@ -251,6 +251,62 @@ describe("seekhao interview router error and fallback behavior", () => {
   });
 });
 
+describe("openrouter json schema validation resilience", () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    const envModule = (await import("./_core/env")) as unknown as { ENV: Record<string, string> };
+    envModule.groqApiKey = "";
+    vi.stubEnv("GROQ_API_KEY", "gsk_test_transcription_key");
+    vi.stubEnv("OPENROUTER_API_KEY", "sk_openrouter_test");
+    await setForgeConfigured(false);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  }, 10_000);
+
+  it("retries on the fallback model when the primary model returns 400 json_validate_failed and completes the answer", async () => {
+    const calls: string[] = [];
+    const responses: Array<{ url: string; body: string }> = [];
+    globalThis.fetch = vi.fn(async (url: any, init: any) => {
+      const urlStr = String(url);
+      if (urlStr.includes("/audio/transcriptions")) {
+        // Groq Whisper mock (GROQ_API_KEY is unset so the direct path needs
+        // a fetch stub instead of an env key in this scenario).
+        return new Response(JSON.stringify({ text: "I would evaluate retrieval recall, faithfulness, latency, and cost." }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (urlStr.includes("openrouter.ai/api/v1/chat/completions")) {
+        const body = JSON.parse(init.body);
+        calls.push(body.model);
+        responses.push({ url, body: init.body });
+        if (body.model === "google/gemini-3.7-flash") {
+          return new Response(JSON.stringify({ error: { message: "Failed to validate JSON.", type: "invalid_request_error", code: "json_validate_failed", failed_generation: "" } }), { status: 400, headers: { "Content-Type": "application/json" } });
+        }
+        return new Response(JSON.stringify({ choices: [{ message: { content: '{"score":4,"feedback":"solid answer","strength":"clarity","focus":"add evidence","nextCue":"name your constraint"}' } }] }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return Promise.reject(new Error("unexpected fetch"));
+    });
+
+    const started = await startInterview();
+    const result = await submitRecordedTestAnswer(started.sessionId);
+
+    // Two structured calls happen per answer (evaluation + next question):
+    // each tries the primary model first and retries on the fallback.
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    for (let index = 0; index < calls.length; index += 2) {
+      expect(calls[index]).toBe("google/gemini-3.7-flash");
+      expect(calls[index + 1]).toBe("google/gemini-2.5-flash");
+    }
+    expect(result.feedback.score).toBe(4);
+    expect(result.transcript).toContain("retrieval recall");
+
+    const retryBody = JSON.parse(responses[1].body);
+    expect(retryBody.model).toBe("google/gemini-2.5-flash");
+    expect(retryBody.response_format).toEqual({ type: "json_object" });
+  });
+});
+
 describe("groq transcription resilience", () => {
   it("retries transient groq 429 errors before giving up with a friendly message", async () => {
     const originalKey = (await import("./_core/env")).ENV.groqApiKey;
