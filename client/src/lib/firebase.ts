@@ -172,7 +172,7 @@ async function preparePersistence(firebaseAuth: ReturnType<typeof auth>) {
   throw new Error("this browser does not allow Firebase authentication storage");
 }
 
-export async function signInWithGoogle() {
+export async function signInWithGoogle(): Promise<User | null> {
   const firebaseAuth = auth();
   await preparePersistence(firebaseAuth);
 
@@ -184,7 +184,7 @@ export async function signInWithGoogle() {
     const provider = new GoogleAuthProvider();
     provider.setCustomParameters({ prompt: "select_account" });
     await signInWithRedirect(firebaseAuth, provider);
-    return;
+    return null;
   }
 
   const provider = new GoogleAuthProvider();
@@ -192,6 +192,7 @@ export async function signInWithGoogle() {
   const result = await signInWithPopup(firebaseAuth, provider);
   await firebaseAuth.authStateReady();
   if (!result.user || !firebaseAuth.currentUser) throw new Error("firebase did not persist the google session");
+  return result.user;
 }
 
 /**

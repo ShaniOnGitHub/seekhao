@@ -1,5 +1,6 @@
 import { useFirebaseAuth } from "@/_core/hooks/useFirebaseAuth";
 import { signInWithGoogle } from "@/lib/firebase";
+import { clearAfterLogin, rememberAfterLogin } from "@/lib/authRedirect";
 import { browserVoiceMessage, interviewRequestErrorMessage, microphoneErrorMessage, normaliseAudioMimeType, preferredEnglishVoice, type AudioMimeType } from "@/lib/interviewBrowser";
 import { detectResumeType, extractResumeText } from "@/lib/resumeText";
 import { trpc } from "@/lib/trpc";
@@ -168,10 +169,25 @@ export default function Interview() {
   };
   const continuePractice = () => { if (!question || report) return; setTranscript(""); setFeedback(null); setCaption(question); speak(question); };
   const reset = () => { setPractice(null); setReport(null); setFeedback(null); setTranscript(""); setCaption("your question will appear here as a spoken subtitle."); };
+  useEffect(() => {
+    if (isAuthenticated) clearAfterLogin();
+  }, [isAuthenticated]);
+  const retryGoogleSignIn = async () => {
+    if (!configured) {
+      toast.error("google sign-in will be ready once firebase is connected.");
+      return;
+    }
+    rememberAfterLogin("/interview");
+    try {
+      await signInWithGoogle();
+    } catch {
+      clearAfterLogin();
+      toast.error("we couldn't open google sign-in.");
+    }
+  };
 
   if (loading) return <main className="dusk-page grid min-h-screen place-items-center text-sm text-white/60">opening your practice room…</main>;
-  if (!isAuthenticated && !loading) sessionStorage.removeItem("seekhao-after-login");
-  if (!isAuthenticated) return <main className="dusk-page grid min-h-screen place-items-center px-5"><div className="glass-panel max-w-md rounded-[2rem] p-3"><div className="gradient-card overflow-hidden rounded-[1.6rem] p-8 text-center text-white"><span className="seekhao-wordmark text-4xl font-medium">seekhao</span><div className="mx-auto mt-8 flex h-10 items-end justify-center gap-1.5">{[16,28,38,21,34,14,29].map((height,index)=><span className="wave-bar w-1.5 rounded-full bg-white" style={{height}} key={index} />)}</div><p className="mt-7 text-sm text-white/68">your practice room is ready</p><h1 className="mt-2 text-3xl tracking-[-.06em]">sign in to continue.</h1><button onClick={() => configured ? signInWithGoogle().catch(() => toast.error("we couldn't open google sign-in.")) : toast.error("google sign-in will be ready once firebase is connected.")} className="mt-7 rounded-full bg-white px-5 py-3 text-sm font-medium text-[#111111]">continue with google</button></div></div></main>;
+  if (!isAuthenticated) return <main className="dusk-page grid min-h-screen place-items-center px-5"><div className="glass-panel max-w-md rounded-[2rem] p-3"><div className="gradient-card overflow-hidden rounded-[1.6rem] p-8 text-center text-white"><span className="seekhao-wordmark text-4xl font-medium">seekhao</span><div className="mx-auto mt-8 flex h-10 items-end justify-center gap-1.5">{[16,28,38,21,34,14,29].map((height,index)=><span className="wave-bar w-1.5 rounded-full bg-white" style={{height}} key={index} />)}</div><p className="mt-7 text-sm text-white/68">your practice room is ready</p><h1 className="mt-2 text-3xl tracking-[-.06em]">sign in to continue.</h1><button onClick={retryGoogleSignIn} className="mt-7 rounded-full bg-white px-5 py-3 text-sm font-medium text-[#111111]">continue with google</button></div></div></main>;
   if (report) return <ReportView name={name} role={role} report={report} onAgain={reset} onHome={() => setLocation("/")} />;
   if (!practice) return <Onboarding name={name} role={role} resume={resume} dragging={dragging} busy={preparingResume || startInterview.isPending} onName={setName} onRole={setRole} onFileChange={onFileChange} onDrop={onDrop} onDragging={setDragging} onRemove={() => { setResume(null); setResumeText(""); }} onBegin={begin} onBack={() => setLocation("/")} />;
   return <PracticeRoom name={name} role={role} question={question} focus={focus} number={questionNumber} max={practice.maxQuestions} caption={caption} transcript={transcript} feedback={feedback} recording={recording} elapsed={elapsed} busy={submittingAnswer || submitAnswerChunk.isPending} voiceState={voiceState} onSpeak={() => { setCaption(question); speak(question); }} onRecord={startRecording} onStop={stopRecording} onContinue={continuePractice} onExit={reset} />;

@@ -1,5 +1,6 @@
 import { useFirebaseAuth } from "@/_core/hooks/useFirebaseAuth";
 import { isInAppBrowser, signInWithGoogle } from "@/lib/firebase";
+import { clearAfterLogin, consumeAfterLogin, rememberAfterLogin } from "@/lib/authRedirect";
 import { ArrowDownRight, ArrowUpRight, AudioLines, CheckCircle2, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
@@ -18,16 +19,23 @@ export default function Home() {
   const iosChromeUrl = `googlechrome://navigate?url=${encodeURIComponent(currentUrl)}`;
   useEffect(() => {
     if (loading || !isAuthenticated) return;
-    if (sessionStorage.getItem("seekhao-after-login") === "interview") {
-      sessionStorage.removeItem("seekhao-after-login");
-      setLocation("/interview");
-    }
+    if (consumeAfterLogin() === "/interview") setLocation("/interview");
   }, [isAuthenticated, loading, setLocation]);
   const begin = async () => {
     if (isAuthenticated) { setLocation("/interview"); return; }
     if (!configured) { toast.error("google sign-in will be ready once firebase is connected."); return; }
     if (inAppBrowser) { setBrowserHandoff(true); return; }
-    try { sessionStorage.setItem("seekhao-after-login", "interview"); await signInWithGoogle(); } catch { toast.error("google sign-in didn't finish. pick your account again and retry."); }
+    try {
+      rememberAfterLogin("/interview");
+      const signedInUser = await signInWithGoogle();
+      if (signedInUser) {
+        clearAfterLogin();
+        setLocation("/interview");
+      }
+    } catch {
+      clearAfterLogin();
+      toast.error("google sign-in didn't finish. pick your account again and retry.");
+    }
   };
 
   return (
