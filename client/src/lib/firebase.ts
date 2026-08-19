@@ -8,10 +8,19 @@ import {
   onAuthStateChanged,
   setPersistence,
   inMemoryPersistence,
-  signInWithCredential,
   signInWithPopup,
+  signInWithRedirect,
   type User,
 } from "firebase/auth";
+
+export function isInAppBrowser(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const agent = navigator.userAgent.toLowerCase();
+  const socialWebView = /whatsapp|instagram|fbav|fban|messenger|line\//.test(agent);
+  const androidWebView = /; wv\)|; wv;|version\/\d+\.\d+.*chrome\/\d+.*mobile safari/.test(agent);
+  const iosWebView = /iphone|ipad|ipod/.test(agent) && /applewebkit/.test(agent) && !/safari|crios|fxios/.test(agent);
+  return socialWebView || androidWebView || iosWebView;
+}
 
 function isPopupLikelyBlocked(): boolean {
   if (typeof navigator !== "undefined" && navigator.userAgent) {
@@ -97,10 +106,8 @@ function createGoogleButtonOverlay(): { host: HTMLDivElement; button: HTMLDivEle
 }
 
 /**
- * Mobile/in-app browsers use the explicit GIS button rather than the GIS One Tap
- * prompt. The prompt can be skipped or leave a blank iframe when storage is
- * partitioned; the rendered button gives Google a real user gesture and always
- * reports a credential through its callback.
+ * The explicit GIS button remains available as a defensive fallback for
+ * future environments where Firebase redirect cannot be used.
  */
 function signInWithGoogleIdentityButton(): Promise<string> {
   return new Promise<string>((resolve, reject) => {
@@ -165,12 +172,13 @@ export async function signInWithGoogle() {
   await preparePersistence(firebaseAuth);
 
   if (isPopupLikelyBlocked()) {
-    // Do not fall through to Firebase redirect on mobile. This project is hosted
-    // outside Firebase Hosting and its firebaseapp.com auth helper is unavailable.
-    const idToken = await signInWithGoogleIdentityButton();
-    const result = await signInWithCredential(firebaseAuth, GoogleAuthProvider.credential(idToken));
-    await firebaseAuth.authStateReady();
-    if (!result.user || !firebaseAuth.currentUser) throw new Error("firebase did not persist the google session");
+    // Firebase Hosting is enabled for this project, so the supported redirect
+    // flow is safer than exchanging a GIS token inside a mobile iframe/webview.
+    // The page reloads back to seekhao.onrender.com and finishRedirectSignIn()
+    // consumes the result on the next mount.
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: "select_account" });
+    await signInWithRedirect(firebaseAuth, provider);
     return;
   }
 
