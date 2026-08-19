@@ -27,7 +27,12 @@ function isPopupLikelyBlocked(): boolean {
     const agent = navigator.userAgent.toLowerCase();
     if (agent.includes("mobile") || agent.includes("android") || /iphone|ipad|ipod/.test(agent)) return true;
   }
-  if (typeof window !== "undefined" && !window.open) return true;
+  if (typeof window !== "undefined") {
+    if (!window.open) return true;
+    // Mobile emulation and narrow browser windows can keep a desktop-looking
+    // user agent while still blocking popups opened from an async auth chain.
+    if (window.innerWidth <= 768) return true;
+  }
   return false;
 }
 
