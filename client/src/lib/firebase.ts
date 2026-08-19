@@ -1,12 +1,13 @@
 import { getApp, getApps, initializeApp } from "firebase/app";
 import {
+  browserLocalPersistence,
   getAuth,
+  getRedirectResult,
   GoogleAuthProvider,
   onAuthStateChanged,
+  setPersistence,
   signInWithCredential,
   signInWithPopup,
-  signInWithRedirect,
-  getRedirectResult,
   type User,
 } from "firebase/auth";
 
@@ -15,14 +16,10 @@ function isPopupLikelyBlocked(): boolean {
     const agent = navigator.userAgent.toLowerCase();
     if (agent.includes("mobile") || agent.includes("android") || /iphone|ipad|ipod/.test(agent)) return true;
   }
-  // In-app browsers (WhatsApp, Instagram, Facebook webviews) cannot open
-  // popup windows reliably — detect by missing window.open support.
   if (typeof window !== "undefined" && !window.open) return true;
   return false;
 }
 
-// The Google OAuth client id used by this Firebase project (seen in OAuth
-// request URLs: client_id=217420754231-nj6e0supa2n15fpb2193erm41sr0g6vc).
 const GOOGLE_CLIENT_ID = "217420754231-nj6e0supa2n15fpb2193erm41sr0g6vc.apps.googleusercontent.com";
 
 const config = {
@@ -45,52 +42,25 @@ export function observeFirebaseUser(listener: (user: User | null) => void) {
   return onAuthStateChanged(auth(), listener);
 }
 
-type GisPrompt = {
-  isNotDisplayed?: () => boolean;
-  isSkippedMoment?: () => boolean;
-  isDismissedMoment?: () => boolean;
+type GisIdentity = {
+  initialize: (options: {
+    client_id: string;
+    callback: (response: { credential?: string }) => void;
+    auto_select?: boolean;
+    context?: string;
+  }) => void;
+  renderButton: (parent: HTMLElement, options: Record<string, unknown>) => void;
 };
 
-function castPrompt(notification: unknown): GisPrompt | undefined {
-  return notification && typeof notification === "object" ? (notification as GisPrompt) : undefined;
+function gis(): GisIdentity | undefined {
+  const browserWindow = window as unknown as { google?: { accounts?: { id?: GisIdentity } } };
+  return browserWindow.google?.accounts?.id;
 }
-
-// ---------- Google Identity Services (GIS) bridge ----------
-// GIS is loaded from https://accounts.google.com/gsi/client and runs its OAuth
-// flow inside an iframe/dialog controlled by Google itself — no popup window,
-// no firebaseapp.com redirect, so it works in mobile browsers and in-app
-// webviews (WhatsApp, Instagram, Facebook) where popups get blocked.
 
 let gisScriptPromise: Promise<void> | null = null;
 
-// Matches the Window augmentation in client/src/components/Map.tsx so both
-// files agree on the type of window.google.
-declare global {
-  interface Window {
-    google?: {
-      accounts?: {
-        id?: {
-          initialize: (options: Record<string, unknown>) => void;
-          prompt: (callback?: unknown) => void;
-        };
-      };
-    };
-  }
-}
-
-type GisAccounts = {
-  id?: {
-    initialize: (options: Record<string, unknown>) => void;
-    prompt: (callback?: unknown) => void;
-  };
-};
-
-function gis(): GisAccounts | undefined {
-  return window.google?.accounts as GisAccounts | undefined;
-}
-
 function loadGisScript(): Promise<void> {
-  if (gis()?.id) return Promise.resolve();
+  if (gis()) return Promise.resolve();
   if (gisScriptPromise) return gisScriptPromise;
   gisScriptPromise = new Promise<void>((resolve, reject) => {
     const script = document.createElement("script");
@@ -103,93 +73,107 @@ function loadGisScript(): Promise<void> {
   return gisScriptPromise;
 }
 
-// Returns the Google id_token from GIS, or null if the user dismisses the
-// Google prompt / GIS is unavailable (e.g. script blocked).
-function signInWithGoogleIdentity(): Promise<string | null> {
-  return new Promise<string | null>((resolve) => {
+function createGoogleButtonOverlay(): { host: HTMLDivElement; button: HTMLDivElement; close: HTMLButtonElement } {
+  const host = document.createElement("div");
+  host.setAttribute("data-seekhao-google-auth", "true");
+  host.style.cssText = [
+    "position:fixed", "inset:0", "z-index:2147483647", "display:flex", "align-items:center", "justify-content:center",
+    "padding:24px", "background:rgba(17,13,13,.82)", "backdrop-filter:blur(14px)", "font-family:system-ui,sans-serif",
+  ].join(";");
+  host.innerHTML = `
+    <div style="width:min(100%,380px);border:1px solid rgba(255,255,255,.18);border-radius:24px;padding:28px;background:linear-gradient(145deg,#3a2a2e,#171313);color:#f7f7f7;box-shadow:0 24px 80px rgba(0,0,0,.45)">
+      <div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:rgba(247,247,247,.58)">seekhao</div>
+      <div style="margin-top:10px;font-size:25px;line-height:1.1">continue with Google</div>
+      <div style="margin-top:10px;font-size:14px;line-height:1.5;color:rgba(247,247,247,.62)">Choose an account to open your interview practice room.</div>
+      <div data-seekhao-google-button style="display:flex;justify-content:center;min-height:44px;margin-top:24px"></div>
+      <button type="button" data-seekhao-google-close style="display:block;width:100%;margin-top:16px;border:0;background:transparent;color:rgba(247,247,247,.58);font-size:14px;cursor:pointer">cancel</button>
+    </div>`;
+  const button = host.querySelector<HTMLDivElement>("[data-seekhao-google-button]");
+  const close = host.querySelector<HTMLButtonElement>("[data-seekhao-google-close]");
+  if (!button || !close) throw new Error("could not create google sign-in dialog");
+  return { host, button, close };
+}
+
+/**
+ * Mobile/in-app browsers use the explicit GIS button rather than the GIS One Tap
+ * prompt. The prompt can be skipped or leave a blank iframe when storage is
+ * partitioned; the rendered button gives Google a real user gesture and always
+ * reports a credential through its callback.
+ */
+function signInWithGoogleIdentityButton(): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    let overlay: ReturnType<typeof createGoogleButtonOverlay> | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let settled = false;
+    const finish = (error?: Error, token?: string) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      overlay?.host.remove();
+      if (error) reject(error); else if (token) resolve(token); else reject(new Error("google did not return an account credential"));
+    };
     loadGisScript()
       .then(() => {
-        const accounts = gis();
-        if (!accounts?.id) { resolve(null); return; }
-        let resolved = false;
-        accounts.id.initialize({
+        const identity = gis();
+        if (!identity) { finish(new Error("google identity sign-in is unavailable in this browser")); return; }
+        overlay = createGoogleButtonOverlay();
+        document.body.appendChild(overlay.host);
+        overlay.close.addEventListener("click", () => finish(new Error("google sign-in was cancelled")), { once: true });
+        identity.initialize({
           client_id: GOOGLE_CLIENT_ID,
-          callback: (response: { credential?: string }) => {
-            if (resolved) return;
-            resolved = true;
-            resolve(response?.credential ?? null);
-          },
           auto_select: false,
-          // Suppress the automatic one-tap bar so we stay in control of UX.
           context: "signin",
+          callback: response => {
+            if (response?.credential) finish(undefined, response.credential);
+            else finish(new Error("google returned no account credential"));
+          },
         });
-        // Show the Google account chooser as a dialog (works in webviews).
-        accounts.id.prompt((notification: unknown) => {
-          // If Google dismisses the prompt without any credential (user closed
-          // it, or GIS not available in this browser), treat as cancelled.
-          const n = castPrompt(notification);
-          if (n?.isNotDisplayed?.()) { if (!resolved) { resolved = true; resolve(null); } }
-          else if (n?.isSkippedMoment?.()) { if (!resolved) { resolved = true; resolve(null); } }
+        identity.renderButton(overlay.button, {
+          type: "standard",
+          theme: "outline",
+          size: "large",
+          text: "continue_with",
+          shape: "pill",
+          width: 280,
+          logo_alignment: "left",
         });
-        // Safety timeout — GIS can hang silently in some webviews.
-        setTimeout(() => {
-          if (!resolved) { resolved = true; resolve(null); }
-        }, 60000);
+        timer = setTimeout(() => finish(new Error("google sign-in timed out; please try again")), 120000);
       })
-      .catch(() => resolve(null));
+      .catch(error => finish(error instanceof Error ? error : new Error(String(error))));
   });
 }
 
-let redirectSignInPending = false;
-
 export async function signInWithGoogle() {
-  // 1. Prefer Google Identity Services on mobile / in-app webviews: it needs
-  //    no popup and never touches firebaseapp.com (which 404s because the
-  //    Firebase project has no Hosting site enabled).
+  const firebaseAuth = auth();
+  await setPersistence(firebaseAuth, browserLocalPersistence);
+
   if (isPopupLikelyBlocked()) {
-    const idToken = await signInWithGoogleIdentity();
-    if (idToken) {
-      try {
-        await signInWithCredential(auth(), GoogleAuthProvider.credential(idToken));
-        // Confirm Firebase actually persisted the user before declaring success.
-        if (auth().currentUser) return;
-        throw new Error("firebase did not persist the google session");
-      } catch (error) {
-        // GIS promised a credential but Firebase rejected it (e.g. the Google
-        // client isn't enabled in Firebase's sign-in providers). Surface the
-        // real cause instead of silently falling through to popup/redirect,
-        // which are guaranteed to fail in an in-app webview anyway.
-        console.error("[seekhao] GIS sign-in failed", error);
-        throw error instanceof Error ? error : new Error(String(error));
-      }
-    }
-    // GIS unavailable or dismissed — fall through to popup, then redirect.
+    // Do not fall through to Firebase redirect on mobile. This project is hosted
+    // outside Firebase Hosting and its firebaseapp.com auth helper is unavailable.
+    const idToken = await signInWithGoogleIdentityButton();
+    const result = await signInWithCredential(firebaseAuth, GoogleAuthProvider.credential(idToken));
+    if (!result.user || !firebaseAuth.currentUser) throw new Error("firebase did not persist the google session");
+    return;
   }
 
   const provider = new GoogleAuthProvider();
   provider.setCustomParameters({ prompt: "select_account" });
-
-  try {
-    await signInWithPopup(auth(), provider);
-    return;
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "";
-    if (message.includes("popup-closed-by-user") || message.includes("cancelled-popup-request")) return;
-    // Popup blocked or failed — fall back to redirect mode.
-    redirectSignInPending = true;
-    await signInWithRedirect(auth(), provider);
-  }
+  const result = await signInWithPopup(firebaseAuth, provider);
+  if (!result.user || !firebaseAuth.currentUser) throw new Error("firebase did not persist the google session");
 }
 
-// Called once after the app mounts so a pending redirect-based sign-in can
-// complete and restore the Firebase session (desktop popup-fallback path).
+/**
+ * Consume any legacy redirect result left by an older deployment. New sign-ins
+ * never start a redirect, so this is intentionally checked on every mount and
+ * is not guarded by an in-memory flag that would be lost during navigation.
+ */
 export async function finishRedirectSignIn(): Promise<User | null> {
-  if (!redirectSignInPending) return null;
-  redirectSignInPending = false;
+  if (!firebaseIsConfigured) return null;
   try {
     const result = await getRedirectResult(auth());
     return result?.user ?? null;
-  } catch {
+  } catch (error) {
+    console.error("[seekhao] legacy redirect sign-in failed", error);
     return null;
   }
 }

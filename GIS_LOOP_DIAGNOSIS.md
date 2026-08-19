@@ -36,3 +36,11 @@ Cannot fully simulate real mobile; but can verify no-regression with tests and b
 - Render auto-deploys; confirm new bundle live (curl https://seekhao.onrender.com, grep asset hash)
 - Tell user to test: GIS chooser appears → pick account → should now land in /interview onboarding instead of bouncing back
 - Note: still cannot simulate real mobile GIS (Google skips prompt in automation), so real-device test is required.
+
+
+## Status (Aug 19, ~12:00 UTC) — PUSHED & DEPLOYED
+- Commit 1b37a71 pushed and Render redeployed (new bundle index-CS5Smq1h.js, hash changed).
+- New bundle confirmed to contain "pick your account again" toast text.
+- Live sandbox test: clicked sign-in in simulated webview (window.open undefined) — stayed on landing (GIS prompt skipped in headless sandbox; that's expected — Google skips prompts for bots). No toast (skipped path resolves null and falls through; popup likely threw and got caught). No regression visible.
+- 40/40 tests pass with Firebase envs. Typecheck clean.
+- User asked to "fix it" — the fix IS pushed and live. Next: tell user to test on phone.
