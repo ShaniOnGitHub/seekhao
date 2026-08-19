@@ -16,7 +16,14 @@ export default function Home() {
   const currentUrl = typeof window === "undefined" ? "https://seekhao.onrender.com" : window.location.href;
   const androidChromeUrl = `intent://${currentUrl.replace(/^https?:\/\//, "")}#Intent;scheme=https;package=com.android.chrome;end`;
   const iosChromeUrl = `googlechrome://navigate?url=${encodeURIComponent(currentUrl)}`;
-  useEffect(() => { if (isAuthenticated && sessionStorage.getItem("seekhao-after-login") === "interview") { sessionStorage.removeItem("seekhao-after-login"); setLocation("/interview"); } }, [isAuthenticated, setLocation]);
+  useEffect(() => {
+    const afterLogin = sessionStorage.getItem("seekhao-after-login");
+    console.log("[seekhao][route] Home auth decision", { isAuthenticated, loading, afterLogin });
+    if (isAuthenticated && afterLogin === "interview") {
+      sessionStorage.removeItem("seekhao-after-login");
+      setLocation("/interview");
+    }
+  }, [isAuthenticated, loading, setLocation]);
   const begin = async () => {
     if (isAuthenticated) { setLocation("/interview"); return; }
     if (!configured) { toast.error("google sign-in will be ready once firebase is connected."); return; }

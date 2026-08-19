@@ -169,6 +169,8 @@ export default function Interview() {
   const continuePractice = () => { if (!question || report) return; setTranscript(""); setFeedback(null); setCaption(question); speak(question); };
   const reset = () => { setPractice(null); setReport(null); setFeedback(null); setTranscript(""); setCaption("your question will appear here as a spoken subtitle."); };
 
+  const afterLogin = sessionStorage.getItem("seekhao-after-login");
+  console.log("[seekhao][route] Interview auth gate", { isAuthenticated, loading, afterLogin });
   if (loading) return <main className="dusk-page grid min-h-screen place-items-center text-sm text-white/60">opening your practice room…</main>;
   if (!isAuthenticated && !loading) sessionStorage.removeItem("seekhao-after-login");
   if (!isAuthenticated) return <main className="dusk-page grid min-h-screen place-items-center px-5"><div className="glass-panel max-w-md rounded-[2rem] p-3"><div className="gradient-card overflow-hidden rounded-[1.6rem] p-8 text-center text-white"><span className="seekhao-wordmark text-4xl font-medium">seekhao</span><div className="mx-auto mt-8 flex h-10 items-end justify-center gap-1.5">{[16,28,38,21,34,14,29].map((height,index)=><span className="wave-bar w-1.5 rounded-full bg-white" style={{height}} key={index} />)}</div><p className="mt-7 text-sm text-white/68">your practice room is ready</p><h1 className="mt-2 text-3xl tracking-[-.06em]">sign in to continue.</h1><button onClick={() => configured ? signInWithGoogle().catch(() => toast.error("we couldn't open google sign-in.")) : toast.error("google sign-in will be ready once firebase is connected.")} className="mt-7 rounded-full bg-white px-5 py-3 text-sm font-medium text-[#111111]">continue with google</button></div></div></main>;

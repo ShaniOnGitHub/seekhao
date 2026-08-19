@@ -203,9 +203,10 @@ export async function finishRedirectSignIn(): Promise<User | null> {
   if (!firebaseIsConfigured) return null;
   try {
     const result = await getRedirectResult(auth());
+    console.log("[seekhao][redirect] getRedirectResult resolved", result?.user ?? null);
     return result?.user ?? null;
   } catch (error) {
-    console.error("[seekhao] legacy redirect sign-in failed", error);
+    console.error("[seekhao][redirect] getRedirectResult failed", error);
     return null;
   }
 }

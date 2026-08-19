@@ -13,6 +13,7 @@ export function useFirebaseAuth() {
   const finishedRedirect = useRef(false);
   useEffect(() => {
     const unsubscribe = observeFirebaseUser(nextUser => {
+      console.log("[seekhao][auth] onAuthStateChanged", nextUser);
       setUser(nextUser);
       if (!resolvedOnce.current) { resolvedOnce.current = true; setLoading(false); }
     });
