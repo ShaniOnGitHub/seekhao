@@ -195,18 +195,16 @@ export async function signInWithGoogle() {
 }
 
 /**
- * Consume any legacy redirect result left by an older deployment. New sign-ins
- * never start a redirect, so this is intentionally checked on every mount and
- * is not guarded by an in-memory flag that would be lost during navigation.
+ * Consume the pending Firebase redirect result after the full-page return from
+ * Google. This is checked on every mount because navigation recreates the app.
  */
 export async function finishRedirectSignIn(): Promise<User | null> {
   if (!firebaseIsConfigured) return null;
   try {
     const result = await getRedirectResult(auth());
-    console.log("[seekhao][redirect] getRedirectResult resolved", result?.user ?? null);
     return result?.user ?? null;
   } catch (error) {
-    console.error("[seekhao][redirect] getRedirectResult failed", error);
+    console.error("[seekhao] redirect sign-in failed", error);
     return null;
   }
 }

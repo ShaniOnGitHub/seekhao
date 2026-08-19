@@ -11,11 +11,20 @@ export function useFirebaseAuth() {
   const [loading, setLoading] = useState(firebaseIsConfigured);
   const resolvedOnce = useRef(false);
   const finishedRedirect = useRef(false);
+  const authStateResolved = useRef(!firebaseIsConfigured);
+  const redirectResolved = useRef(!firebaseIsConfigured);
+  const finishInitialAuth = () => {
+    if (authStateResolved.current && redirectResolved.current) setLoading(false);
+  };
   useEffect(() => {
     const unsubscribe = observeFirebaseUser(nextUser => {
-      console.log("[seekhao][auth] onAuthStateChanged", nextUser);
       setUser(nextUser);
-      if (!resolvedOnce.current) { resolvedOnce.current = true; setLoading(false); }
+      authStateResolved.current = true;
+      if (!resolvedOnce.current) resolvedOnce.current = true;
+      // A restored user is enough to show the authenticated app immediately;
+      // otherwise wait for getRedirectResult before treating null as final.
+      if (nextUser) setLoading(false);
+      else finishInitialAuth();
     });
     return unsubscribe;
   }, []);
@@ -24,7 +33,14 @@ export function useFirebaseAuth() {
   useEffect(() => {
     if (finishedRedirect.current || !firebaseIsConfigured) return;
     finishedRedirect.current = true;
-    void finishRedirectSignIn();
+    void finishRedirectSignIn()
+      .then(redirectUser => {
+        if (redirectUser) setUser(redirectUser);
+      })
+      .finally(() => {
+        redirectResolved.current = true;
+        finishInitialAuth();
+      });
   }, []);
   return { user, loading, isAuthenticated: Boolean(user), configured: firebaseIsConfigured };
 }

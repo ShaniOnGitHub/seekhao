@@ -17,9 +17,8 @@ export default function Home() {
   const androidChromeUrl = `intent://${currentUrl.replace(/^https?:\/\//, "")}#Intent;scheme=https;package=com.android.chrome;end`;
   const iosChromeUrl = `googlechrome://navigate?url=${encodeURIComponent(currentUrl)}`;
   useEffect(() => {
-    const afterLogin = sessionStorage.getItem("seekhao-after-login");
-    console.log("[seekhao][route] Home auth decision", { isAuthenticated, loading, afterLogin });
-    if (isAuthenticated && afterLogin === "interview") {
+    if (loading || !isAuthenticated) return;
+    if (sessionStorage.getItem("seekhao-after-login") === "interview") {
       sessionStorage.removeItem("seekhao-after-login");
       setLocation("/interview");
     }
