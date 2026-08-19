@@ -82,7 +82,7 @@ import { cn } from "@/lib/utils";
 
 declare global {
   interface Window {
-    google?: typeof google;
+    google?: { accounts?: { id?: { initialize: (options: Record<string, unknown>) => void; prompt: (callback?: unknown) => void; } | undefined; } | undefined; } | undefined;
   }
 }
 
