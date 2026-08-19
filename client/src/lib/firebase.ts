@@ -149,9 +149,19 @@ export async function signInWithGoogle() {
   if (isPopupLikelyBlocked()) {
     const idToken = await signInWithGoogleIdentity();
     if (idToken) {
-      const credential = GoogleAuthProvider.credential(idToken);
-      await signInWithCredential(auth(), credential);
-      return;
+      try {
+        await signInWithCredential(auth(), GoogleAuthProvider.credential(idToken));
+        // Confirm Firebase actually persisted the user before declaring success.
+        if (auth().currentUser) return;
+        throw new Error("firebase did not persist the google session");
+      } catch (error) {
+        // GIS promised a credential but Firebase rejected it (e.g. the Google
+        // client isn't enabled in Firebase's sign-in providers). Surface the
+        // real cause instead of silently falling through to popup/redirect,
+        // which are guaranteed to fail in an in-app webview anyway.
+        console.error("[seekhao] GIS sign-in failed", error);
+        throw error instanceof Error ? error : new Error(String(error));
+      }
     }
     // GIS unavailable or dismissed — fall through to popup, then redirect.
   }

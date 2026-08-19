@@ -15,7 +15,7 @@ export default function Home() {
   const begin = async () => {
     if (isAuthenticated) { setLocation("/interview"); return; }
     if (!configured) { toast.error("google sign-in will be ready once firebase is connected."); return; }
-    try { sessionStorage.setItem("seekhao-after-login", "interview"); await signInWithGoogle(); } catch { toast.error("we couldn't open google sign-in. please try again."); }
+    try { sessionStorage.setItem("seekhao-after-login", "interview"); await signInWithGoogle(); } catch { toast.error("google sign-in didn't finish. pick your account again and retry."); }
   };
 
   return (

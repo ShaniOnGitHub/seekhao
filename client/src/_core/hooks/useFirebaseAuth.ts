@@ -4,10 +4,18 @@ import { firebaseIsConfigured, finishRedirectSignIn, observeFirebaseUser } from 
 
 export function useFirebaseAuth() {
   const [user, setUser] = useState<User | null>(null);
+  // loading stays true until Firebase's persistence restore completes its
+  // first onAuthStateChanged callback (null or a user) — without this, a
+  // mid-sign-in navigation briefly renders the "sign in" card even though
+  // the session was already accepted, which looked like a login loop on mobile.
   const [loading, setLoading] = useState(firebaseIsConfigured);
+  const resolvedOnce = useRef(false);
   const finishedRedirect = useRef(false);
   useEffect(() => {
-    const unsubscribe = observeFirebaseUser(nextUser => { setUser(nextUser); setLoading(false); });
+    const unsubscribe = observeFirebaseUser(nextUser => {
+      setUser(nextUser);
+      if (!resolvedOnce.current) { resolvedOnce.current = true; setLoading(false); }
+    });
     return unsubscribe;
   }, []);
   // Mobile / in-app-webview sign-ins use redirect mode (popups are blocked
