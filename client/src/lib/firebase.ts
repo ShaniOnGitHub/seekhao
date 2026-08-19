@@ -1,11 +1,13 @@
 import { getApp, getApps, initializeApp } from "firebase/app";
 import {
   browserLocalPersistence,
+  browserSessionPersistence,
   getAuth,
   getRedirectResult,
   GoogleAuthProvider,
   onAuthStateChanged,
   setPersistence,
+  inMemoryPersistence,
   signInWithCredential,
   signInWithPopup,
   type User,
@@ -143,15 +145,31 @@ function signInWithGoogleIdentityButton(): Promise<string> {
   });
 }
 
+async function preparePersistence(firebaseAuth: ReturnType<typeof auth>) {
+  // Some in-app browsers reject localStorage. Try durable storage first, then
+  // session storage, and finally Firebase memory storage so sign-in itself can
+  // still complete instead of leaving a blank/unfinished page.
+  for (const persistence of [browserLocalPersistence, browserSessionPersistence, inMemoryPersistence]) {
+    try {
+      await setPersistence(firebaseAuth, persistence);
+      return;
+    } catch (error) {
+      console.warn("[seekhao] auth persistence unavailable; trying next option", error);
+    }
+  }
+  throw new Error("this browser does not allow Firebase authentication storage");
+}
+
 export async function signInWithGoogle() {
   const firebaseAuth = auth();
-  await setPersistence(firebaseAuth, browserLocalPersistence);
+  await preparePersistence(firebaseAuth);
 
   if (isPopupLikelyBlocked()) {
     // Do not fall through to Firebase redirect on mobile. This project is hosted
     // outside Firebase Hosting and its firebaseapp.com auth helper is unavailable.
     const idToken = await signInWithGoogleIdentityButton();
     const result = await signInWithCredential(firebaseAuth, GoogleAuthProvider.credential(idToken));
+    await firebaseAuth.authStateReady();
     if (!result.user || !firebaseAuth.currentUser) throw new Error("firebase did not persist the google session");
     return;
   }
@@ -159,6 +177,7 @@ export async function signInWithGoogle() {
   const provider = new GoogleAuthProvider();
   provider.setCustomParameters({ prompt: "select_account" });
   const result = await signInWithPopup(firebaseAuth, provider);
+  await firebaseAuth.authStateReady();
   if (!result.user || !firebaseAuth.currentUser) throw new Error("firebase did not persist the google session");
 }
 
