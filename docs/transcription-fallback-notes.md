@@ -1,3 +1,0 @@
-# Transcription fallback reference
-
-Groq documents an OpenAI-compatible transcription endpoint at `https://api.groq.com/openai/v1/audio/transcriptions`. It accepts multipart `file`, `model`, optional `language`, optional `prompt`, and optional `response_format` fields. The documented `whisper-large-v3-turbo` model is a fast multilingual transcription option, and the endpoint supports `webm`, `mp3`, `mp4`, `m4a`, `ogg`, and `wav` input. The user-provided Groq account confirmed access to `llama-3.3-70b-versatile` for OpenAI-compatible chat-completion fallback. Source: [Groq Speech to Text](https://console.groq.com/docs/speech-to-text).
