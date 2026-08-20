@@ -8,8 +8,8 @@ import {
   onAuthStateChanged,
   setPersistence,
   inMemoryPersistence,
+  signInWithCredential,
   signInWithPopup,
-  signInWithRedirect,
   type User,
 } from "firebase/auth";
 
@@ -36,7 +36,7 @@ function isPopupLikelyBlocked(): boolean {
   return false;
 }
 
-const GOOGLE_CLIENT_ID = "217420754231-nj6e0supa2n15fpb2193erm41sr0g6vc.apps.googleusercontent.com";
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "217420754231-nj6e0supa2n15fpb2193erm41sr0g6vc.apps.googleusercontent.com";
 
 const config = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -177,14 +177,16 @@ export async function signInWithGoogle(): Promise<User | null> {
   await preparePersistence(firebaseAuth);
 
   if (isPopupLikelyBlocked()) {
-    // Firebase Hosting is enabled for this project, so the supported redirect
-    // flow is safer than exchanging a GIS token inside a mobile iframe/webview.
-    // The page reloads back to seekhao.onrender.com and finishRedirectSignIn()
-    // consumes the result on the next mount.
-    const provider = new GoogleAuthProvider();
-    provider.setCustomParameters({ prompt: "select_account" });
-    await signInWithRedirect(firebaseAuth, provider);
-    return null;
+    // Mobile browsers and narrow windows often block Firebase popups. Use the
+    // Google Identity Services credential flow instead of a full-page Firebase
+    // redirect so the Google credential is exchanged while this app is still
+    // on the same page and getRedirectResult() is not required.
+    const idToken = await signInWithGoogleIdentityButton();
+    const credential = GoogleAuthProvider.credential(idToken);
+    const result = await signInWithCredential(firebaseAuth, credential);
+    await firebaseAuth.authStateReady();
+    if (!result.user || !firebaseAuth.currentUser) throw new Error("firebase did not persist the google session");
+    return result.user;
   }
 
   const provider = new GoogleAuthProvider();

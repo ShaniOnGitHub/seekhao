@@ -1,6 +1,6 @@
 import { useFirebaseAuth } from "@/_core/hooks/useFirebaseAuth";
-import { isInAppBrowser, signInWithGoogle } from "@/lib/firebase";
-import { clearAfterLogin, consumeAfterLogin, rememberAfterLogin } from "@/lib/authRedirect";
+import { isInAppBrowser } from "@/lib/firebase";
+import { consumeAfterLogin } from "@/lib/authRedirect";
 import { ArrowDownRight, ArrowUpRight, AudioLines, CheckCircle2, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
@@ -21,21 +21,11 @@ export default function Home() {
     if (loading || !isAuthenticated) return;
     if (consumeAfterLogin() === "/interview") setLocation("/interview");
   }, [isAuthenticated, loading, setLocation]);
-  const begin = async () => {
+  const begin = () => {
     if (isAuthenticated) { setLocation("/interview"); return; }
     if (!configured) { toast.error("google sign-in will be ready once firebase is connected."); return; }
     if (inAppBrowser) { setBrowserHandoff(true); return; }
-    try {
-      rememberAfterLogin("/interview");
-      const signedInUser = await signInWithGoogle();
-      if (signedInUser) {
-        clearAfterLogin();
-        setLocation("/interview");
-      }
-    } catch {
-      clearAfterLogin();
-      toast.error("google sign-in didn't finish. pick your account again and retry.");
-    }
+    setLocation("/signin");
   };
 
   return (
