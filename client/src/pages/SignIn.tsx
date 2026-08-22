@@ -15,7 +15,11 @@ export default function SignIn() {
   const [, setLocation] = useLocation();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [browserHandoff, setBrowserHandoff] = useState(false);
   const inAppBrowser = isInAppBrowser();
+  const currentUrl = typeof window === "undefined" ? "https://seekhao.onrender.com/signin" : window.location.href;
+  const androidChromeUrl = `intent://${currentUrl.replace(/^https?:\/\//, "")}#Intent;scheme=https;package=com.android.chrome;end`;
+  const iosChromeUrl = `googlechrome://navigate?url=${encodeURIComponent(currentUrl)}`;
 
   useEffect(() => {
     if (!loading && isAuthenticated) {
@@ -31,7 +35,7 @@ export default function SignIn() {
       return;
     }
     if (inAppBrowser) {
-      setError("This in-app browser cannot complete Google sign-in. Open seekhao in Chrome or Safari and try again.");
+      setBrowserHandoff(true);
       return;
     }
 
@@ -73,6 +77,8 @@ export default function SignIn() {
             </button>
             {error && <p role="alert" className="mx-auto mt-5 max-w-sm rounded-2xl border border-red-200/20 bg-red-950/25 px-4 py-3 text-left text-xs leading-relaxed text-red-100">{error}</p>}
             <p className="mt-7 text-xs leading-relaxed text-white/38">No password is stored by seekhao. Firebase handles the Google authentication session.</p>
+            {browserHandoff && <div role="dialog" aria-modal="true" className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-5 text-left"><div className="w-full max-w-sm rounded-3xl border border-white/15 bg-[#241a1c] p-6 text-white shadow-2xl"><p className="text-xs uppercase tracking-[.16em] text-white/55">seekhao</p><h2 className="mt-3 text-2xl tracking-[-.04em]">open this in your browser</h2><p className="mt-3 text-sm leading-relaxed text-white/65">This in-app browser cannot complete Google sign-in reliably. Open seekhao in Chrome or Safari, then tap continue with Google again.</p><div className="mt-6 grid gap-3"><a href={typeof navigator !== "undefined" && /android/i.test(navigator.userAgent) ? androidChromeUrl : iosChromeUrl} className="rose-button rounded-full px-5 py-3 text-center text-sm font-medium">open in Chrome</a><a href={currentUrl} target="_blank" rel="noopener noreferrer" className="rounded-full border border-white/15 px-5 py-3 text-center text-sm text-white/70">open in Safari / browser</a><button type="button" onClick={() => setBrowserHandoff(false)} className="rounded-full px-5 py-2 text-center text-sm text-white/45">not now</button></div></div></div>}
+
           </div>
         </div>
       </div>
