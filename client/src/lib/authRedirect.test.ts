@@ -37,4 +37,20 @@ describe("Firebase post-login destination", () => {
 
     expect(values.has("seekhao-after-login")).toBe(false);
   });
+
+  it("keeps authentication resilient when embedded browsers reject storage", () => {
+    const storageError = () => { throw new Error("storage is unavailable"); };
+    vi.stubGlobal("window", {
+      sessionStorage: {
+        getItem: storageError,
+        setItem: storageError,
+        removeItem: storageError,
+      },
+    });
+
+    expect(() => rememberAfterLogin("/interview")).not.toThrow();
+    expect(() => clearAfterLogin()).not.toThrow();
+    expect(consumeAfterLogin()).toBeNull();
+  });
+
 });
