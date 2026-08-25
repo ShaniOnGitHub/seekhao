@@ -25,6 +25,10 @@ describe("seekhao browser interview helpers", () => {
     expect(interviewRequestErrorMessage(new Error("keep each answer recording under 16mb"), "fallback")).toBe("keep each answer recording under 16mb");
   });
 
+  it("turns browser network failures into a clear retry message", () => {
+    expect(interviewRequestErrorMessage(new TypeError("Failed to fetch"), "fallback")).toContain("check your connection");
+  });
+
   it("prefers a recognised woman-coded English voice before a generic English fallback", () => {
     const voices = [
       { name: "Google US English", lang: "en-US" },

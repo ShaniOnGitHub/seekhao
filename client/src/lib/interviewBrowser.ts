@@ -34,5 +34,6 @@ export function preferredEnglishVoice<T extends { lang: string; name: string }>(
 export function interviewRequestErrorMessage(error: unknown, fallback: string) {
   const message = error instanceof Error ? error.message : "";
   if (/unexpected token.*<|not valid json/i.test(message)) return "the request was interrupted before it reached seekhao — usually a brief network or server hiccup. refresh this page once, then try again.";
+  if (/failed to fetch|networkerror|load failed|network request failed|network connection/i.test(message)) return "we couldn't reach seekhao — check your connection, then try again.";
   return message || fallback;
 }
