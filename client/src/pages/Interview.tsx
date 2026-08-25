@@ -26,7 +26,7 @@ function readBlobAsBase64(blob: Blob) {
   });
 }
 function formatTime(seconds: number) { return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`; }
-function Stars({ score }: { score: number }) { return <div className="flex gap-1">{[1,2,3,4,5].map(star => <span key={star} className={star <= score ? "text-[#e6cece]" : "text-white/15"}>●</span>)}</div>; }
+function Stars({ score }: { score: number }) { return <div className="flex gap-1" role="img" aria-label={`score ${score} out of 5`}>{[1,2,3,4,5].map(star => <span key={star} aria-hidden="true" className={star <= score ? "text-[#e6cece]" : "text-white/15"}>●</span>)}</div>; }
 
 export default function Interview() {
   const { isAuthenticated, loading, configured } = useFirebaseAuth();
