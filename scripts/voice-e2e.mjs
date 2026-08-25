@@ -1,7 +1,14 @@
 import { readFile } from "node:fs/promises";
 import { appRouter } from "../server/routers.ts";
 
-const audio = (await readFile("/tmp/seekhao-answer.mp3")).toString("base64");
+const audioPath = process.env.SEEKHAO_E2E_AUDIO ?? process.argv[2] ?? "/tmp/seekhao-answer.mp3";
+let audio;
+try {
+  audio = (await readFile(audioPath)).toString("base64");
+} catch (error) {
+  const detail = error instanceof Error ? ` ${error.message}` : "";
+  throw new Error(`Voice E2E needs an audio fixture at ${audioPath}. Set SEEKHAO_E2E_AUDIO or pass a file path as the first argument.${detail}`);
+}
 const chunkLength = 56_000;
 const caller = appRouter.createCaller({
   user: null,
