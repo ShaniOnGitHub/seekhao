@@ -10,4 +10,5 @@ function Skeleton({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
+Skeleton.displayName = "Skeleton";
 export { Skeleton };
