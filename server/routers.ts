@@ -12,6 +12,7 @@ import { chooseOpeningAngle, difficultyForQuestion, isRoundComplete, MAX_QUESTIO
 import { drawQuestionSeed, fallbackSeedForRole, formatSeedAsPromptBase } from "./questionBank";
 import { storageGetSignedUrl, storagePut } from "./storage";
 import { localStoragePut } from "./_core/localStorage";
+import { invokeInterviewModel } from "./interviewService";
 
 const sessions = new Map<string, InterviewSession>();
 const MAX_ANSWER_BYTES = 16 * 1024 * 1024;
@@ -26,110 +27,7 @@ const pendingAnswerUploads = new Map<string, PendingAnswerUpload>();
 type QuestionResult = { question: string; focus: string; followUpHint: string };
 type ReportResult = { overallScore: number; summary: string; strengths: string[]; focusAreas: string[]; nextSteps: string[] };
 
-// When GROQ_API_KEY is present (self-hosted deployment), Groq is the primary
-// model; the platform service becomes the fallback so local development keeps
-// working unchanged. Groq retired llama-3.3-70b-versatile, so the model is
-// configurable via GROQ_TEXT_MODEL (default: qwen3.6-27b, available on the
-// free tier).
-const GROQ_TEXT_MODEL = process.env.GROQ_TEXT_MODEL || "qwen/qwen3.6-27b";
 
-// OpenRouter is the primary chat provider on self-hosted deployments (e.g.
-// Render): its free tier exposes models that return well-formed JSON for the
-// structured prompts this app relies on, unlike the currently available Groq
-// chat models. GROQ_API_KEY is still required for Whisper transcription.
-// gemini-2.0-flash-exp:free returns 400 json_validate_failed intermittently on
-// strict JSON schema prompts (free-tier structured output is unstable).
-// google/gemini-3.7-flash supports structured output reliably and is free on
-// OpenRouter as of Aug 2026; overrides via OPENROUTER_MODEL are still honored.
-const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "google/gemini-3.7-flash";
-// Fallback model used when the primary model rejects the strict JSON schema
-// (e.g. 400 json_validate_failed). Simpler model id avoids schema validation
-// while still returning well-formed JSON for these small prompts.
-// Verified present on OpenRouter's model list as of Aug 2026; supports
-// json_object response_format reliably.
-const OPENROUTER_FALLBACK_MODEL = process.env.OPENROUTER_FALLBACK_MODEL || "google/gemini-2.5-flash";
-
-async function invokeOpenRouterChat(request: Parameters<typeof invokeLLM>[0]): Promise<Awaited<ReturnType<typeof invokeLLM>>> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) throw new Error("OPENROUTER_API_KEY is not configured");
-  let format = request.response_format?.type === "json_schema"
-    ? { type: "json_object" as const }
-    : request.response_format ?? { type: "json_object" as const };
-  const payload = { model: OPENROUTER_MODEL, messages: request.messages, max_tokens: request.max_tokens, response_format: format };
-  let response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "");
-    const status = response.status;
-    if (status === 400 && errorText.includes("json_validate_failed")) {
-      // The free-tier structured output path rejected the prompt. Retry once on
-      // the fallback model with a relaxed format instead of failing the answer.
-      console.warn("[seekhao] OpenRouter json_validate_failed, retrying on fallback model");
-      payload.model = OPENROUTER_FALLBACK_MODEL;
-      format = { type: "json_object" as const };
-      payload.response_format = format;
-      response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (response.ok) return (await response.json()) as Awaited<ReturnType<typeof invokeLLM>>;
-    }
-    const retryText = await response.text().catch(() => "");
-    throw new Error(`OpenRouter chat request failed: ${status} ${response.statusText} – ${retryText}`);
-  }
-  return (await response.json()) as Awaited<ReturnType<typeof invokeLLM>>;
-}
-
-async function invokeGroqChat(request: Parameters<typeof invokeLLM>[0]): Promise<Awaited<ReturnType<typeof invokeLLM>>> {
-  const apiKey = ENV.groqApiKey;
-  if (!apiKey) throw new Error("GROQ_API_KEY is not configured");
-  const format = request.response_format?.type === "json_schema"
-    ? { type: "json_object" as const }
-    : request.response_format ?? { type: "json_object" as const };
-  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: GROQ_TEXT_MODEL, messages: request.messages, max_tokens: request.max_tokens, response_format: format }),
-  });
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "");
-    throw new Error(`Groq chat request failed: ${response.status} ${response.statusText} – ${errorText}`);
-  }
-  return (await response.json()) as Awaited<ReturnType<typeof invokeLLM>>;
-}
-
-async function invokeInterviewModel(request: Parameters<typeof invokeLLM>[0]) {
-  const platformConfigured = Boolean(ENV.forgeApiUrl && ENV.forgeApiKey);
-  // Self-hosted deployments (e.g. Render): prefer OpenRouter, then Groq chat,
-  // then the platform LLM if it happens to be configured.
-  if (process.env.OPENROUTER_API_KEY) {
-    try {
-      return await invokeOpenRouterChat(request);
-    } catch (error) {
-      if (!platformConfigured && !(ENV.groqApiKey || process.env.GROQ_API_KEY)) {
-        const message = error instanceof Error ? error.message : "unknown error";
-        throw new Error(`question generation failed (${message.replace(/^OpenRouter chat request failed: /, "")})`);
-      }
-      // Fall through to Groq or the platform service.
-    }
-  }
-  if (ENV.groqApiKey || process.env.GROQ_API_KEY) {
-    try {
-      return await invokeGroqChat(request);
-    } catch (error) {
-      if (!platformConfigured) {
-        const message = error instanceof Error ? error.message : "unknown error";
-        throw new Error(`question generation failed (${message.replace(/^Groq chat request failed: /, "")})`);
-      }
-      return await invokeLLM(request);
-    }
-  }
-  return invokeLLM(request);
-}
 
 // Direct in-memory transcription. Recordings are never persisted anywhere.
 async function transcribeDirectly(audio: Buffer, mimeType: AudioMimeType, prompt: string) {
