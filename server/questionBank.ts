@@ -15,6 +15,7 @@ export type QuestionSeed = {
   topic: string;
   framing: string;
   why: string;
+  difficulty?: "easy" | "intermediate" | "advanced" | "challenging";
 };
 
 type Pool = { name: string; seeds: QuestionSeed[] };
@@ -48,11 +49,11 @@ const AI_ENGINEERING_POOLS: Pool[] = [
   {
     name: "retrieval and rag",
     seeds: [
-      { topic: "rag pipeline", framing: "walk me through", why: "tests applied system knowledge" },
-      { topic: "chunking and embedding choices", framing: "what would you compare or choose between", why: "tests design trade-offs" },
-      { topic: "hallucination and grounding failures in rag", framing: "how would you catch", why: "tests production judgement" },
-      { topic: "vector database selection", framing: "when have you picked", why: "tests real decision experience" },
-      { topic: "evaluating rag quality", framing: "tell me about how you would measure", why: "tests metrics thinking" },
+      { topic: "rag pipeline", framing: "walk me through", why: "tests applied system knowledge", difficulty: "intermediate" },
+      { topic: "chunking and embedding choices", framing: "what would you compare or choose between", why: "tests design trade-offs", difficulty: "advanced" },
+      { topic: "hallucination and grounding failures in rag", framing: "how would you catch", why: "tests production judgement", difficulty: "advanced" },
+      { topic: "vector database selection", framing: "when have you picked", why: "tests real decision experience", difficulty: "intermediate" },
+      { topic: "evaluating rag quality", framing: "tell me about how you would measure", why: "tests metrics thinking", difficulty: "advanced" },
     ],
   },
   {
