@@ -20,4 +20,5 @@ const Toaster = ({ ...props }: ToasterProps) => {
   );
 };
 
+Toaster.displayName = "Toaster";
 export { Toaster };
