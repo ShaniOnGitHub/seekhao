@@ -5,16 +5,34 @@ const MAX_PDF_PAGES = 4;
 // typically labels PDFs as "application/octet-stream" (or ""), which would
 // make a perfectly valid resume get rejected. Detect PDF/txt by extension as
 // a fallback so the file picker and drag-drop accept real resumes everywhere.
+/**
+ * Detects if a file is a PDF or TXT resume, using both MIME type and file extension.
+ * Handles cases where browsers report incorrect or empty MIME types.
+ * @param file The File object from a file input or drag-drop event.
+ * @returns 'pdf', 'txt', or null if the type is unsupported.
+ */
 export function detectResumeType(file: File): "pdf" | "txt" | null {
   if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) return "pdf";
   if (file.type === "text/plain" || /\.(txt|text)$/i.test(file.name)) return "txt";
   return null;
 }
 
+/**
+ * Normalises extracted resume text by collapsing whitespace and truncating to a safe limit.
+ * @param value The raw text extracted from the resume.
+ * @returns The cleaned and truncated text.
+ */
 export function normaliseResumeText(value: string) {
   return value.replace(/\s+/g, " ").trim().slice(0, MAX_RESUME_TEXT_CHARS);
 }
 
+/**
+ * Extracts text content from a PDF or TXT resume file.
+ * Uses pdfjs-dist for PDF parsing and native File.text() for plain text.
+ * @param file The resume File object.
+ * @returns The extracted and normalised text.
+ * @throws Error if the file type is unsupported or text cannot be read.
+ */
 export async function extractResumeText(file: File) {
   const kind = detectResumeType(file);
   if (!kind) throw new Error("use a pdf or txt resume for now.");
