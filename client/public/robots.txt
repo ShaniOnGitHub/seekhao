@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /interview
+
+Sitemap: https://seekhao.onrender.com/sitemap.xml
