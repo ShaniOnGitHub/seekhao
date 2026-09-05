@@ -64,4 +64,5 @@ function Textarea({
   );
 }
 
+Textarea.displayName = "Textarea";
 export { Textarea };
