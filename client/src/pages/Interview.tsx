@@ -186,7 +186,19 @@ export default function Interview() {
     }
   };
 
-  if (loading) return <main className="dusk-page grid min-h-screen place-items-center text-sm text-white/60">opening your practice room…</main>;
+  if (loading) return (
+    <main className="dusk-page grid min-h-screen place-items-center px-5">
+      <div className="flex flex-col items-center gap-6 animate-pulse">
+        <span className="seekhao-wordmark text-4xl font-medium text-white/40">seekhao</span>
+        <div className="flex h-6 items-end justify-center gap-1.5">
+          {[12, 20, 24, 16, 22, 10, 18].map((height, index) => (
+            <span key={index} className="w-1 rounded-full bg-white/20" style={{ height }} />
+          ))}
+        </div>
+        <p className="text-sm text-white/40 tracking-wide">opening your practice room…</p>
+      </div>
+    </main>
+  );
   if (!isAuthenticated) return <main className="dusk-page grid min-h-screen place-items-center px-5"><div className="glass-panel max-w-md rounded-[2rem] p-3"><div className="gradient-card overflow-hidden rounded-[1.6rem] p-8 text-center text-white"><span className="seekhao-wordmark text-4xl font-medium">seekhao</span><div className="mx-auto mt-8 flex h-10 items-end justify-center gap-1.5">{[16,28,38,21,34,14,29].map((height,index)=><span className="wave-bar w-1.5 rounded-full bg-white" style={{height}} key={index} />)}</div><p className="mt-7 text-sm text-white/68">your practice room is ready</p><h1 className="mt-2 text-3xl tracking-[-.06em]">sign in to continue.</h1><button onClick={retryGoogleSignIn} className="mt-7 rounded-full bg-white px-5 py-3 text-sm font-medium text-[#111111]">continue with google</button></div></div></main>;
   if (report) return <ReportView name={name} role={role} report={report} onAgain={reset} onHome={() => setLocation("/")} />;
   if (!practice) return <Onboarding name={name} role={role} resume={resume} dragging={dragging} busy={preparingResume || startInterview.isPending} onName={setName} onRole={setRole} onFileChange={onFileChange} onDrop={onDrop} onDragging={setDragging} onRemove={() => { setResume(null); setResumeText(""); }} onBegin={begin} onBack={() => setLocation("/")} />;
