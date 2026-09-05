@@ -13,6 +13,11 @@ import {
   type User,
 } from "firebase/auth";
 
+/**
+ * Detects if the current browser is an in-app browser (e.g., WhatsApp, Instagram, FB Messenger).
+ * These environments often have restrictive security settings that affect authentication.
+ * @returns True if an in-app browser is detected.
+ */
 export function isInAppBrowser(): boolean {
   if (typeof navigator === "undefined") return false;
   const agent = navigator.userAgent.toLowerCase();
@@ -53,6 +58,11 @@ function auth() {
   return getAuth(app);
 }
 
+/**
+ * Subscribes to Firebase authentication state changes.
+ * @param listener A callback function that receives the current user or null.
+ * @returns An unsubscribe function.
+ */
 export function observeFirebaseUser(listener: (user: User | null) => void) {
   if (!firebaseIsConfigured) { listener(null); return () => undefined; }
   return onAuthStateChanged(auth(), listener);
@@ -172,6 +182,13 @@ async function preparePersistence(firebaseAuth: ReturnType<typeof auth>) {
   throw new Error("this browser does not allow Firebase authentication storage");
 }
 
+/**
+ * Initiates Google sign-in using the most appropriate method for the current environment.
+ * Uses a custom Google Identity Services overlay for mobile/narrow viewports to avoid
+ * popup blockers, and standard Firebase popups for desktop browsers.
+ * @returns The authenticated Firebase User or null.
+ * @throws Error if sign-in fails or session cannot be persisted.
+ */
 export async function signInWithGoogle(): Promise<User | null> {
   const firebaseAuth = auth();
   await preparePersistence(firebaseAuth);
@@ -212,4 +229,7 @@ export async function finishRedirectSignIn(): Promise<User | null> {
   }
 }
 
+/**
+ * Signs the current user out of Firebase.
+ */
 export async function signOutOf() { await auth().signOut(); }
