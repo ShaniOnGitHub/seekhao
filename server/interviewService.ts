@@ -80,6 +80,7 @@ export async function invokeInterviewModel(request: Parameters<typeof invokeLLM>
     try {
       return await invokeOpenRouterChat(request);
     } catch (error) {
+      console.warn("[seekhao] OpenRouter failed, attempting fallback provider", error);
       if (!platformConfigured && !(ENV.groqApiKey || process.env.GROQ_API_KEY)) {
         const message = error instanceof Error ? error.message : "unknown error";
         throw new Error(`question generation failed (${message.replace(/^OpenRouter chat request failed: /, "")})`);
@@ -91,6 +92,7 @@ export async function invokeInterviewModel(request: Parameters<typeof invokeLLM>
     try {
       return await invokeGroqChat(request);
     } catch (error) {
+      console.warn("[seekhao] Groq failed, attempting platform fallback", error);
       if (!platformConfigured) {
         const message = error instanceof Error ? error.message : "unknown error";
         throw new Error(`question generation failed (${message.replace(/^Groq chat request failed: /, "")})`);
